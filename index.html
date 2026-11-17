@@ -1,0 +1,2759 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>叫叫CABD 急救小英雄｜3D 互動急救訓練模擬遊戲</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Google Fonts: Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Noto Sans TC', sans-serif;
+      background-color: #e0f2fe;
+      color: #0f172a;
+    }
+
+    /* 自訂捲軸 */
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #e2e8f0;
+      border-radius: 999px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 999px;
+    }
+
+    /* 3D 角色頭頂浮動標籤 */
+    .world-label {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 15;
+    }
+
+    /* 橘色電擊鍵閃爍特效 */
+    @keyframes orangeShockPulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.85);
+      }
+      50% {
+        transform: scale(1.03);
+        box-shadow: 0 0 0 12px rgba(249, 115, 22, 0);
+      }
+    }
+    .shock-btn-active {
+      animation: orangeShockPulse 1.05s infinite;
+    }
+
+    /* 溫和提醒晃動（不扣分、只溫和引導） */
+    @keyframes gentleShake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+    .gentle-shake {
+      animation: gentleShake 0.35s ease-in-out;
+    }
+
+    /* 節拍器視覺圓環 */
+    .beat-ring {
+      transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease;
+    }
+
+    /* 大型立體觸控按鈕 */
+    .tactile-btn {
+      transition: transform 0.09s ease, box-shadow 0.09s ease, background-color 0.18s ease;
+      box-shadow: 0 5px 0 rgba(15, 23, 42, 0.2);
+    }
+    .tactile-btn:active:not(:disabled) {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 rgba(15, 23, 42, 0.2);
+    }
+    .tactile-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen overflow-hidden flex flex-col lg:flex-row">
+
+  <!-- =========================================================
+       左側 80%：Three.js 3D 互動場景視窗
+       ========================================================= -->
+  <section id="scene-wrapper" class="relative w-full h-[52vh] lg:h-full lg:w-[80%] bg-sky-100 overflow-hidden border-b-4 lg:border-b-0 lg:border-r-4 border-slate-300">
+    <!-- Three.js Canvas 掛載點 -->
+    <div id="canvas-container" class="w-full h-full cursor-pointer"></div>
+
+    <!-- 3D 角色與部位頭頂動態標籤層 -->
+    <div id="labels-layer" class="absolute inset-0 pointer-events-none overflow-hidden">
+      <!-- 患者標籤 -->
+      <div id="label-patient" class="world-label hidden">
+        <div id="bubble-patient" class="hidden mb-1 bg-white text-rose-700 px-3 py-1 rounded-2xl text-sm font-black shadow-md border-2 border-rose-400 whitespace-nowrap">
+          （沒有反應⋯）
+        </div>
+        <div class="bg-rose-600 text-white px-3 py-1 rounded-full text-sm md:text-base font-bold shadow-lg border-2 border-white whitespace-nowrap">
+          🛏️ 平躺的患者
+        </div>
+      </div>
+
+      <!-- 路人 A（拿手機） -->
+      <div id="label-personA" class="world-label hidden">
+        <div class="flex flex-col items-center">
+          <div id="bubble-personA" class="hidden mb-1 bg-white text-slate-900 px-3 py-1.5 rounded-2xl text-sm font-bold shadow-md border-2 border-blue-500 whitespace-nowrap">
+            好！我馬上打 119！📱
+          </div>
+          <div class="bg-blue-600 text-white px-3 py-1 rounded-full text-sm md:text-base font-bold shadow-lg border-2 border-white whitespace-nowrap">
+            📱 拿手機的路人
+          </div>
+        </div>
+      </div>
+
+      <!-- 路人 B（AED 旁熱心夥伴） -->
+      <div id="label-personB" class="world-label hidden">
+        <div class="flex flex-col items-center">
+          <div id="bubble-personB" class="hidden mb-1 bg-white text-slate-900 px-3 py-1.5 rounded-2xl text-sm font-bold shadow-md border-2 border-amber-500 whitespace-nowrap">
+            收到！我去拿 AED！⚡
+          </div>
+          <div class="bg-amber-600 text-white px-3 py-1 rounded-full text-sm md:text-base font-bold shadow-lg border-2 border-white whitespace-nowrap">
+            ⚡ AED 旁的夥伴
+          </div>
+        </div>
+      </div>
+
+      <!-- 路人 C（拿飲料干擾項） -->
+      <div id="label-personC" class="world-label hidden">
+        <div class="flex flex-col items-center">
+          <div id="bubble-personC" class="hidden mb-1 bg-white text-slate-700 px-3 py-1 rounded-2xl text-xs md:text-sm font-bold shadow border-2 border-slate-400 whitespace-nowrap">
+            呃⋯我只有飲料耶 🧋
+          </div>
+          <div class="bg-slate-600 text-white px-3 py-1 rounded-full text-sm md:text-base font-bold shadow-lg border-2 border-white whitespace-nowrap">
+            🧋 拿飲料的路人
+          </div>
+        </div>
+      </div>
+
+      <!-- 路人 D（背書包學生干擾項） -->
+      <div id="label-personD" class="world-label hidden">
+        <div class="flex flex-col items-center">
+          <div id="bubble-personD" class="hidden mb-1 bg-white text-slate-700 px-3 py-1 rounded-2xl text-xs md:text-sm font-bold shadow border-2 border-slate-400 whitespace-nowrap">
+            我沒有手機也沒有拿過 AED 🎒
+          </div>
+          <div class="bg-indigo-600 text-white px-3 py-1 rounded-full text-sm md:text-base font-bold shadow-lg border-2 border-white whitespace-nowrap">
+            🎒 背書包學生
+          </div>
+        </div>
+      </div>
+
+      <!-- 第 5 關 AED 貼片練習專用動態浮標 -->
+      <div id="label-pad1" class="world-label hidden">
+        <div class="bg-red-600 text-white px-2.5 py-1 rounded-xl text-xs md:text-sm font-black shadow-lg border-2 border-white whitespace-nowrap">
+          ① 點此貼：右側鎖骨下方
+        </div>
+      </div>
+      <div id="label-pad2" class="world-label hidden">
+        <div class="bg-blue-600 text-white px-2.5 py-1 rounded-xl text-xs md:text-sm font-black shadow-lg border-2 border-white whitespace-nowrap">
+          ② 點此貼：左側乳頭下方偏外側
+        </div>
+      </div>
+      <div id="label-shock-btn" class="world-label hidden">
+        <div class="bg-orange-500 text-white px-3 py-1 rounded-xl text-sm md:text-base font-black shadow-xl border-2 border-white whitespace-nowrap animate-bounce">
+          ⚡ 點擊下方橘色電擊鍵！
+        </div>
+      </div>
+    </div>
+
+    <!-- 左上角：標題與鏡頭狀態徽章 -->
+    <div class="absolute top-3 left-3 z-20 pointer-events-none flex flex-col gap-2">
+      <div class="bg-white/95 backdrop-blur px-4 py-2 rounded-2xl shadow-md border-2 border-sky-200 flex items-center gap-2.5">
+        <span class="text-2xl">🏥</span>
+        <div>
+          <div class="text-xs font-bold text-sky-700">台灣高職特教急救實作模擬</div>
+          <div class="text-sm md:text-base font-black text-slate-800">叫叫 CABD 急救小英雄</div>
+        </div>
+      </div>
+      <div id="camera-focus-badge" class="hidden bg-indigo-600/95 text-white px-3.5 py-1.5 rounded-2xl shadow-lg text-xs md:text-sm font-black border-2 border-white max-w-sm">
+        🎥 鏡頭特寫模式
+      </div>
+    </div>
+
+    <!-- 右上角三個大按鈕（最小高度 56px，適配觸控電子白板與 iPad） -->
+    <div class="absolute top-3 right-3 z-20 flex flex-wrap justify-end gap-2">
+      <button id="btn-guide-modal" type="button"
+        class="tactile-btn min-h-[56px] px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-2xl border-2 border-amber-600 flex items-center gap-2 text-base md:text-lg">
+        <span class="text-2xl">📖</span>
+        <span>急救步驟卡</span>
+      </button>
+
+      <button id="btn-mute-toggle" type="button"
+        class="tactile-btn min-h-[56px] px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 font-black rounded-2xl border-2 border-slate-300 flex items-center gap-2 text-base md:text-lg">
+        <span id="mute-icon" class="text-2xl">🔊</span>
+        <span id="mute-text">語音開</span>
+      </button>
+
+      <button id="btn-home-confirm" type="button"
+        class="tactile-btn min-h-[56px] px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-black rounded-2xl border-2 border-slate-900 flex items-center gap-2 text-base md:text-lg">
+        <span class="text-2xl">🏠</span>
+        <span>回首頁</span>
+      </button>
+    </div>
+
+    <!-- 底部鏡頭微調與重設按鈕 -->
+    <div class="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none">
+      <div class="hidden sm:flex bg-slate-900/75 text-white text-xs md:text-sm px-3.5 py-1.5 rounded-xl backdrop-blur-sm items-center gap-2">
+        <span>👆 可直接點擊 3D 物件與貼片位置互動 ｜ 拖曳畫面微調角度</span>
+      </div>
+      <button id="btn-reset-cam" type="button"
+        class="pointer-events-auto min-h-[44px] px-3.5 py-1.5 bg-white/95 hover:bg-white text-slate-800 font-black text-xs md:text-sm rounded-xl border-2 border-slate-300 shadow">
+        🎯 重置特寫視角
+      </button>
+    </div>
+  </section>
+
+  <!-- =========================================================
+       右側 20%：緊湊高對比工作分析（Task Analysis）教學與操作面板
+       ========================================================= -->
+  <aside class="w-full h-[48vh] lg:h-full lg:w-[20%] lg:min-w-[290px] bg-white flex flex-col justify-between overflow-hidden">
+
+    <!-- 頂部：6 關緊湊進度膠囊列 -->
+    <header class="bg-slate-100 border-b-2 border-slate-200 px-2.5 py-2 shrink-0">
+      <div id="progress-bar" class="grid grid-cols-6 gap-1">
+        <!-- 由 JS 動態渲染 -->
+      </div>
+    </header>
+
+    <!-- 中央主要互動區（可捲動） -->
+    <main id="task-panel" class="flex-1 overflow-y-auto custom-scroll p-3.5 flex flex-col justify-between">
+      <div id="panel-content" class="w-full mx-auto my-auto"></div>
+    </main>
+
+  </aside>
+
+  <!-- =========================================================
+       彈窗 1：急救步驟卡（圖解教學彈窗）
+       ========================================================= -->
+  <div id="modal-guide" class="fixed inset-0 z-50 hidden bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-3xl max-h-[90vh] rounded-3xl shadow-2xl border-4 border-amber-400 flex flex-col overflow-hidden">
+      <div class="bg-amber-400 px-6 py-4 flex items-center justify-between">
+        <h2 class="text-2xl md:text-3xl font-black text-slate-950 flex items-center gap-2">
+          <span>🚑</span>
+          <span>台灣急救口訣：叫・叫・C・D 圖解卡</span>
+        </h2>
+        <button id="close-guide-modal" type="button"
+          class="min-h-[48px] min-w-[48px] bg-white hover:bg-slate-100 text-slate-900 font-black rounded-2xl text-xl border-2 border-slate-800">
+          ✕
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto custom-scroll grid grid-cols-1 md:grid-cols-2 gap-4 text-slate-800">
+        <div class="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4">
+          <div class="text-xl font-black text-rose-700 mb-1">1️⃣ 叫：確認意識</div>
+          <p class="text-base md:text-lg font-bold">用力拍拍患者雙肩，大聲問：<br>「先生、小姐，你還好嗎？你怎麼了？」</p>
+        </div>
+        <div class="bg-blue-50 border-2 border-blue-300 rounded-2xl p-4">
+          <div class="text-xl font-black text-blue-700 mb-1">2️⃣ 叫：求救 119 與拿 AED</div>
+          <p class="text-base md:text-lg font-bold">直接點擊指定的人：<br>👉 拿手機的人「請幫我打 119！」<br>👉 AED 旁的夥伴「請幫我拿 AED！」</p>
+        </div>
+        <div class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4">
+          <div class="text-xl font-black text-emerald-700 mb-1">3️⃣ C：胸部按壓（CPR）</div>
+          <p class="text-base md:text-lg font-bold">雙手掌交疊放在<strong>兩乳頭連線中央</strong>。<br>速率：每分鐘 100～120 下（用力壓、快快壓）。</p>
+        </div>
+        <div class="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4">
+          <div class="text-xl font-black text-amber-800 mb-1">4️⃣ D：使用 AED（開→貼→插→電）</div>
+          <p class="text-base md:text-lg font-bold">① 綠色開電源 → ② 親自點擊胸口貼上兩片貼片（右側鎖骨下方、左側乳頭下方偏外側）→ ③ 插藍色插頭 → ④ 聽完「不要碰觸病人」後，直接點選機器下方的橘色電擊鍵！</p>
+        </div>
+      </div>
+      <div class="p-4 bg-slate-100 border-t-2 border-slate-200 flex justify-end">
+        <button id="btn-guide-ok" type="button"
+          class="tactile-btn min-h-[56px] px-8 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xl rounded-2xl">
+          我知道了，繼續救援！
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       彈窗 2：回首頁確認對話框（不使用原生 confirm）
+       ========================================================= -->
+  <div id="modal-home" class="fixed inset-0 z-50 hidden bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl border-4 border-slate-700 p-6 text-center">
+      <div class="text-5xl mb-3">🏠</div>
+      <h3 class="text-2xl font-black text-slate-900 mb-2">要回到首頁嗎？</h3>
+      <p class="text-lg font-bold text-slate-600 mb-6">目前的關卡進度將會重新開始喔！</p>
+      <div class="grid grid-cols-2 gap-3">
+        <button id="cancel-home-btn" type="button"
+          class="tactile-btn min-h-[56px] bg-slate-200 hover:bg-slate-300 text-slate-900 font-black text-lg rounded-2xl">
+          繼續練習
+        </button>
+        <button id="confirm-home-btn" type="button"
+          class="tactile-btn min-h-[56px] bg-rose-600 hover:bg-rose-500 text-white font-black text-lg rounded-2xl">
+          確定回首頁
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       核心 JavaScript：音效引擎、語音 TTS、3D 場景與教學狀態機
+       ========================================================= -->
+  <script>
+    /**
+     * =========================================================================
+     * 1. 全域狀態與特教教學設定 (State & Special Ed Configuration)
+     * =========================================================================
+     */
+    const GAME_STATE = {
+      stage: 0, // 0:首頁, 1:叫(意識), 2:叫(119), 3:叫(AED), 4:C(CPR), 5:D(AED), 6:救援成功
+      subStep: 0, // 第 5 關: 0=開電源, 1=貼貼片(學生親自點兩處), 2=插插頭, 3=按橘色電擊鍵
+      pad1Placed: false, // 第一片（患者右側鎖骨下方）是否已貼上
+      pad2Placed: false, // 第二片（患者左側乳頭下方偏外側）是否已貼上
+      mode: 'learn', // 'learn'(學習模式) | 'practice'(練習模式) | 'challenge'(挑戰模式)
+      cprTarget: 30, // 15 (教學體驗版) 或 30 (標準完整版)
+      metronomeSound: true,
+      isMuted: false,
+      isLocked: false, // 350ms 防連點鎖定
+      isTransitioning: false,
+      showHintAfterError: false,
+
+      // 統計數據
+      startTime: 0,
+      endTime: 0,
+      cprCount: 0,
+      cprTimestamps: [],
+      cprValidCount: 0,
+      cprIntervals: [],
+
+      // 3D 動畫旗標
+      personAState: 'idle',
+      personBState: 'idle',
+      crowdCleared: false,
+      ambulanceState: 'hidden',
+      patientLoaded: false
+    };
+
+    // 350ms 防連點鎖定保護機制
+    function lockInput(duration = 350) {
+      GAME_STATE.isLocked = true;
+      setTimeout(() => {
+        GAME_STATE.isLocked = false;
+      }, duration);
+    }
+
+    /**
+     * =========================================================================
+     * 2. Web Audio API 音效與節拍器引擎（正向溫和回饋）
+     * =========================================================================
+     */
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.metronomeTimer = null;
+        this.beatCallback = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      playSuccess() {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.11);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.36);
+      }
+
+      playGentleHint() {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(340, now);
+        osc.frequency.exponentialRampToValueAtTime(280, now + 0.22);
+        gain.gain.setValueAtTime(0.14, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.26);
+      }
+
+      playCompressSound(isGoodTempo = true) {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(isGoodTempo ? 230 : 175, now);
+        osc.frequency.exponentialRampToValueAtTime(75, now + 0.09);
+        gain.gain.setValueAtTime(0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      }
+
+      playMetronomeTick() {
+        if (GAME_STATE.isMuted || !GAME_STATE.metronomeSound) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.07);
+      }
+
+      playShockSound() {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(460, now);
+        osc.frequency.exponentialRampToValueAtTime(110, now + 0.36);
+        gain.gain.setValueAtTime(0.24, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      }
+
+      playAmbulanceSiren() {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(660, now);
+        osc.frequency.setValueAtTime(520, now + 0.35);
+        osc.frequency.setValueAtTime(660, now + 0.7);
+        osc.frequency.setValueAtTime(520, now + 1.05);
+        gain.gain.setValueAtTime(0.14, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.45);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 1.5);
+      }
+
+      playCheeringFanfare() {
+        if (GAME_STATE.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          const now = this.ctx.currentTime + idx * 0.14;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.45);
+        });
+      }
+
+      startMetronome(bpm = 110, onBeat = null) {
+        this.stopMetronome();
+        this.beatCallback = onBeat;
+        const intervalMs = Math.round(60000 / bpm);
+        const tick = () => {
+          this.playMetronomeTick();
+          if (this.beatCallback) this.beatCallback();
+        };
+        tick();
+        this.metronomeTimer = setInterval(tick, intervalMs);
+      }
+
+      stopMetronome() {
+        if (this.metronomeTimer) {
+          clearInterval(this.metronomeTimer);
+          this.metronomeTimer = null;
+        }
+      }
+    }
+
+    const soundEngine = new SoundEngine();
+
+    /**
+     * =========================================================================
+     * 3. Web Speech API 台灣繁體中文語音朗讀引擎 (zh-TW)
+     * 支援 onComplete 回呼與安全逾時保護，確保語音完整念完絕不提前截斷
+     * =========================================================================
+     */
+    let activeUtterance = null;
+    let activeSpeakTimeout = null;
+
+    function speakText(text, onComplete = null, rate = 0.94) {
+      if (activeSpeakTimeout) {
+        clearTimeout(activeSpeakTimeout);
+        activeSpeakTimeout = null;
+      }
+
+      if (GAME_STATE.isMuted || !('speechSynthesis' in window)) {
+        if (onComplete) {
+          activeSpeakTimeout = setTimeout(onComplete, Math.max(1200, text.length * 140));
+        }
+        return;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        activeUtterance = utter;
+        utter.lang = 'zh-TW';
+        utter.rate = rate;
+        utter.pitch = 1.05;
+
+        const voices = window.speechSynthesis.getVoices();
+        const twVoice = voices.find(v => v.lang.includes('zh-TW') || v.lang.includes('zh_TW'));
+        if (twVoice) utter.voice = twVoice;
+
+        let finished = false;
+        const finishOnce = () => {
+          if (finished) return;
+          finished = true;
+          if (activeSpeakTimeout) {
+            clearTimeout(activeSpeakTimeout);
+            activeSpeakTimeout = null;
+          }
+          if (onComplete) onComplete();
+        };
+
+        utter.onend = () => {
+          setTimeout(finishOnce, 250);
+        };
+        utter.onerror = () => {
+          finishOnce();
+        };
+
+        const fallbackMs = Math.max(2600, text.length * 260 + 800);
+        activeSpeakTimeout = setTimeout(finishOnce, fallbackMs);
+
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        console.warn('TTS 朗讀略過:', e);
+        if (onComplete) setTimeout(onComplete, 1600);
+      }
+    }
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+    }
+
+    /**
+     * =========================================================================
+     * 4. Three.js 3D 校園/車站大廳場景建構與平滑鏡頭運鏡系統
+     * =========================================================================
+     */
+    const sceneWrapper = document.getElementById('scene-wrapper');
+    const canvasContainer = document.getElementById('canvas-container');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe0f2fe);
+    scene.fog = new THREE.Fog(0xe0f2fe, 22, 52);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+
+    // 座標系統設計說明（以正對患者視角 Z+ 往 Z- 看為基準）：
+    // - 患者仰臥平躺於藍色軟墊上 (0, 0.24, 0.55)
+    // - 患者頭部在左側 X = -1.02，腳部在右側 X = +1.02，臉與胸口朝上 (+Y)
+    // - 從正對患者視角看：
+    //     * 患者右側（身體右側）在畫面「上方 / 遠離鏡頭側 (-Z)」
+    //     * 患者左側（身體左側）在畫面「下方 / 靠近鏡頭側 (+Z)」
+    // - AED 主機外移放置於患者左肩外側獨立區域 (-0.25, 0.04, -0.78)，與患者手臂保持明顯距離、完全無遮擋！
+    // - AED 主機頂端（綠色電源鍵、白色插孔）在 Z = -1.06，主機下方（橘色電擊鍵）在 Z = -0.50（完全朝向操作者前方！）
+    const CAM_PRESETS = {
+      overview: { target: new THREE.Vector3(0, 0.72, 0.1), radius: 8.6, theta: 0.10, phi: 1.02, label: '' },
+      stage1:   { target: new THREE.Vector3(-0.15, 0.48, 0.55), radius: 4.8, theta: 0.20, phi: 0.88, label: '🎥 鏡頭拉近：拍拍平躺患者雙肩確認意識' },
+      cprZoom:  { target: new THREE.Vector3(-0.13, 0.48, 0.62), radius: 2.35, theta: 0.30, phi: 0.62, label: '🎥 胸口特寫：雙手交疊於兩乳頭連線中央' },
+      aedZoom:  { target: new THREE.Vector3(-0.25, 0.20, -0.74), radius: 1.48, theta: 0.04, phi: 0.42, label: '🎥 AED 面板特寫：開 → 貼 → 插 → 電' },
+      aedPads:  { target: new THREE.Vector3(-0.15, 0.36, 0.10), radius: 2.65, theta: 0.06, phi: 0.45, label: '🎥 貼片練習特寫：請依序點擊胸口兩個發光貼片位置' },
+      ending:   { target: new THREE.Vector3(0.8, 1.0, -0.5), radius: 9.5, theta: -0.15, phi: 1.08, label: '🚑 救護車抵達現場！' }
+    };
+
+    let currentCam = {
+      target: CAM_PRESETS.overview.target.clone(),
+      radius: CAM_PRESETS.overview.radius,
+      theta: CAM_PRESETS.overview.theta,
+      phi: CAM_PRESETS.overview.phi
+    };
+    let desiredCam = {
+      target: CAM_PRESETS.overview.target.clone(),
+      radius: CAM_PRESETS.overview.radius,
+      theta: CAM_PRESETS.overview.theta,
+      phi: CAM_PRESETS.overview.phi
+    };
+
+    function setCameraPreset(presetKey) {
+      const p = CAM_PRESETS[presetKey] || CAM_PRESETS.overview;
+      desiredCam.target.copy(p.target);
+      desiredCam.radius = p.radius;
+      desiredCam.theta = p.theta;
+      desiredCam.phi = p.phi;
+
+      const badge = document.getElementById('camera-focus-badge');
+      if (badge) {
+        if (p.label) {
+          badge.textContent = p.label;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      }
+    }
+
+    function applyCameraTransform() {
+      camera.position.x = currentCam.target.x + currentCam.radius * Math.sin(currentCam.phi) * Math.sin(currentCam.theta);
+      camera.position.y = currentCam.target.y + currentCam.radius * Math.cos(currentCam.phi);
+      camera.position.z = currentCam.target.z + currentCam.radius * Math.sin(currentCam.phi) * Math.cos(currentCam.theta);
+      camera.lookAt(currentCam.target);
+    }
+    applyCameraTransform();
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    canvasContainer.appendChild(renderer.domElement);
+
+    // 燈光設定
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.80);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.85);
+    dirLight.position.set(5, 12, 7);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 30;
+    const d = 10;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    scene.add(dirLight);
+
+    // 產生海報與標籤 Canvas 貼圖
+    function createPosterTexture(bgColor, borderColor, title, subtitle, emoji) {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 320;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, 256, 320);
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 14;
+      ctx.strokeRect(7, 7, 242, 306);
+
+      ctx.font = '72px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(emoji, 128, 105);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 34px "Noto Sans TC", sans-serif';
+      ctx.fillText(title, 128, 175);
+
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 22px "Noto Sans TC", sans-serif';
+      ctx.fillText(subtitle, 128, 225);
+      return new THREE.CanvasTexture(c);
+    }
+
+    // 1. 大廳地板與導盲磚走廊
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 24),
+      new THREE.MeshLambertMaterial({ color: 0xf8fafc })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const lane = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 4.4),
+      new THREE.MeshLambertMaterial({ color: 0xdbeafe })
+    );
+    lane.rotation.x = -Math.PI / 2;
+    lane.position.set(0, 0.005, -2.8);
+    scene.add(lane);
+
+    // 2. 後方牆面與急救宣導海報
+    const backWall = new THREE.Mesh(
+      new THREE.BoxGeometry(30, 5.2, 0.4),
+      new THREE.MeshLambertMaterial({ color: 0xf1f5f9 })
+    );
+    backWall.position.set(0, 2.6, -5.5);
+    backWall.receiveShadow = true;
+    scene.add(backWall);
+
+    const trimMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(30, 1.1, 0.44),
+      new THREE.MeshLambertMaterial({ color: 0x6ee7b7 })
+    );
+    trimMesh.position.set(0, 0.55, -5.49);
+    scene.add(trimMesh);
+
+    const poster1 = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 1.75),
+      new THREE.MeshBasicMaterial({ map: createPosterTexture('#ffffff', '#ef4444', '叫叫 CABD', '人人學會急救', '❤️⚡') })
+    );
+    poster1.position.set(-2.6, 2.5, -5.28);
+    scene.add(poster1);
+
+    const poster2 = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 1.75),
+      new THREE.MeshBasicMaterial({ map: createPosterTexture('#fef9c3', '#f59e0b', 'CPR 100-120', '兩乳頭連線中央', '👐💓') })
+    );
+    poster2.position.set(0.2, 2.5, -5.28);
+    scene.add(poster2);
+
+    // 3. 牆上紅色 AED 壁掛箱
+    const aedWallGroup = new THREE.Group();
+    aedWallGroup.position.set(3.2, 2.0, -5.2);
+    scene.add(aedWallGroup);
+
+    const aedBoxRed = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 1.25, 0.35),
+      new THREE.MeshLambertMaterial({ color: 0xdc2626 })
+    );
+    aedBoxRed.castShadow = true;
+    aedWallGroup.add(aedBoxRed);
+
+    const aedSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.84, 1.05),
+      new THREE.MeshBasicMaterial({ map: createPosterTexture('#dc2626', '#ffffff', 'AED', '自動體外去顫器', '💚⚡') })
+    );
+    aedSign.position.set(0, 0, 0.18);
+    aedWallGroup.add(aedSign);
+
+    const wallAedBag = new THREE.Mesh(
+      new THREE.BoxGeometry(0.56, 0.5, 0.22),
+      new THREE.MeshLambertMaterial({ color: 0x1e293b })
+    );
+    wallAedBag.position.set(0, -0.1, 0.22);
+    aedWallGroup.add(wallAedBag);
+
+    /**
+     * 輔助函式：建立低多邊形人物模型
+     */
+    function createCharacter({ shirtColor, pantsColor, skinColor = 0xffdbac, hairColor = 0x1e293b, hasFace = true, hasBackpack = false }) {
+      const group = new THREE.Group();
+
+      // 軀幹 (局部 y: 0.72 ~ 1.58，中心 y = 1.15)
+      const torso = new THREE.Mesh(
+        new THREE.BoxGeometry(0.66, 0.86, 0.34),
+        new THREE.MeshLambertMaterial({ color: shirtColor })
+      );
+      torso.position.y = 1.15;
+      torso.castShadow = true;
+      group.add(torso);
+
+      // 選配後背書包（干擾角色使用）
+      if (hasBackpack) {
+        const bag = new THREE.Mesh(
+          new THREE.BoxGeometry(0.52, 0.62, 0.24),
+          new THREE.MeshLambertMaterial({ color: 0x4f46e5 })
+        );
+        bag.position.set(0, 1.16, -0.28);
+        bag.castShadow = true;
+        group.add(bag);
+      }
+
+      // 頭部與五官 (局部 y: 1.60 ~ 2.04，中心 y = 1.82)
+      const headGroup = new THREE.Group();
+      headGroup.position.y = 1.82;
+      const head = new THREE.Mesh(
+        new THREE.BoxGeometry(0.44, 0.44, 0.42),
+        new THREE.MeshLambertMaterial({ color: skinColor })
+      );
+      head.castShadow = true;
+      headGroup.add(head);
+
+      const hairTop = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 0.16, 0.44),
+        new THREE.MeshLambertMaterial({ color: hairColor })
+      );
+      hairTop.position.set(0, 0.18, 0);
+      headGroup.add(hairTop);
+
+      const hairBack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 0.38, 0.14),
+        new THREE.MeshLambertMaterial({ color: hairColor })
+      );
+      hairBack.position.set(0, 0.04, -0.16);
+      headGroup.add(hairBack);
+
+      if (hasFace) {
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
+        const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.02), eyeMat);
+        leftEye.position.set(-0.1, 0.03, 0.215);
+        headGroup.add(leftEye);
+
+        const rightEye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.02), eyeMat);
+        rightEye.position.set(0.1, 0.03, 0.215);
+        headGroup.add(rightEye);
+      }
+      group.add(headGroup);
+
+      // 左右手臂
+      const armGeo = new THREE.BoxGeometry(0.18, 0.72, 0.18);
+      const armMat = new THREE.MeshLambertMaterial({ color: skinColor });
+
+      const leftArm = new THREE.Mesh(armGeo, armMat);
+      leftArm.position.set(-0.44, 1.16, 0);
+      leftArm.castShadow = true;
+      group.add(leftArm);
+
+      const rightArm = new THREE.Mesh(armGeo, armMat);
+      rightArm.position.set(0.44, 1.16, 0);
+      rightArm.castShadow = true;
+      group.add(rightArm);
+
+      // 雙腿 (局部 y: 0 ~ 0.72)
+      const legGeo = new THREE.BoxGeometry(0.24, 0.72, 0.26);
+      const legMat = new THREE.MeshLambertMaterial({ color: pantsColor });
+
+      const leftLeg = new THREE.Mesh(legGeo, legMat);
+      leftLeg.position.set(-0.17, 0.36, 0);
+      leftLeg.castShadow = true;
+      group.add(leftLeg);
+
+      const rightLeg = new THREE.Mesh(legGeo, legMat);
+      rightLeg.position.set(0.17, 0.36, 0);
+      rightLeg.castShadow = true;
+      group.add(rightLeg);
+
+      group.userData = { torso, headGroup, leftArm, rightArm, leftLeg, rightLeg };
+      return group;
+    }
+
+    // 4. 地面藍色軟墊與【完全仰臥平躺】的患者
+    const matMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2.7, 0.07, 1.65),
+      new THREE.MeshLambertMaterial({ color: 0x93c5fd })
+    );
+    matMesh.position.set(0, 0.035, 0.55);
+    matMesh.receiveShadow = true;
+    scene.add(matMesh);
+
+    const patientCarrier = new THREE.Group();
+    patientCarrier.position.set(0, 0, 0.55);
+    patientCarrier.userData.interactId = 'patient';
+    scene.add(patientCarrier);
+
+    const patientGroup = createCharacter({
+      shirtColor: 0xfef3c7,
+      pantsColor: 0x334155,
+      hairColor: 0x0f172a,
+      hasFace: true
+    });
+    // 仰臥平躺：頭朝 -X (-1.02)、腳朝 +X (+1.02)、臉與胸口朝 +Y
+    patientGroup.rotation.order = 'YXZ';
+    patientGroup.rotation.y = Math.PI / 2;
+    patientGroup.rotation.x = -Math.PI / 2;
+    patientGroup.position.set(1.02, 0.24, 0);
+    patientCarrier.add(patientGroup);
+
+    // 胸口垂直位移容器（按壓 CPR 時同步下陷與回彈）
+    const chestSurfaceGroup = new THREE.Group();
+    chestSurfaceGroup.position.set(0, 0.415, 0);
+    patientCarrier.add(chestSurfaceGroup);
+
+    // 胸部「兩乳頭連線中央（胸骨下半段）」定位環與十字靶心
+    const chestTargetGroup = new THREE.Group();
+    chestTargetGroup.position.set(-0.13, 0, 0);
+    chestSurfaceGroup.add(chestTargetGroup);
+
+    const chestRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.08, 0.14, 32),
+      new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.92 })
+    );
+    chestRing.rotation.x = -Math.PI / 2;
+    chestTargetGroup.add(chestRing);
+
+    const chestDot = new THREE.Mesh(
+      new THREE.CircleGeometry(0.035, 24),
+      new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide })
+    );
+    chestDot.rotation.x = -Math.PI / 2;
+    chestDot.position.y = 0.002;
+    chestTargetGroup.add(chestDot);
+
+    // CPR 按壓綠色擴散波紋特效
+    const cprRipple = new THREE.Mesh(
+      new THREE.RingGeometry(0.12, 0.16, 32),
+      new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide, transparent: true, opacity: 0 })
+    );
+    cprRipple.rotation.x = -Math.PI / 2;
+    cprRipple.position.set(-0.13, 0.005, 0);
+    chestSurfaceGroup.add(cprRipple);
+
+    /**
+     * =========================================================================
+     * 5. 患者胸部的兩片 AED 電擊貼片與【學生親自練習點擊的發光目標區】
+     * 解剖方向完全校正（患者頭在 -X、腳在 +X、仰臥朝 +Y，從正對患者視角看）：
+     *   - 患者「右側」在局部座標 +Z（畫面靠近施救者側的左下方）
+     *   - 患者「左側」在局部座標 -Z（畫面靠近 AED 主機側的右上方）
+     *   1. 第一片貼片：貼在「患者右側鎖骨下方」 -> 局部座標 (-0.34, 0.006, +0.18)
+     *   2. 第二片貼片：貼在「患者左側乳頭下方偏外側」 -> 局部座標 (+0.08, 0.006, -0.22)
+     * =========================================================================
+     */
+    function createPadVisual(accentColor, stripeDir) {
+      const g = new THREE.Group();
+      // 白色矩形背膠墊（沿身體縱軸 X 略長、橫軸 Z 略窄，完全貼合胸膛解剖方向）
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.17, 0.014, 0.13),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      g.add(base);
+
+      // 外框邊線
+      const border = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.010, 0.14),
+        new THREE.MeshBasicMaterial({ color: 0x94a3b8 })
+      );
+      g.add(border);
+
+      // 心臟示意色塊
+      const icon = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.018, 0.065),
+        new THREE.MeshBasicMaterial({ color: accentColor })
+      );
+      icon.position.x = stripeDir * 0.015;
+      g.add(icon);
+      return g;
+    }
+
+    // 貼片 1：患者右側鎖骨下方（畫面左下方：-0.34, 0.006, +0.18）
+    const pad1Group = createPadVisual(0xef4444, -1);
+    pad1Group.position.set(-0.34, 0.006, 0.18);
+    pad1Group.visible = false;
+    chestSurfaceGroup.add(pad1Group);
+
+    // 貼片 1 學生練習點擊發光框（虛線感雙層矩形 + 擴大透明觸控熱區）
+    const pad1TargetGroup = new THREE.Group();
+    pad1TargetGroup.position.set(-0.34, 0.004, 0.18);
+    pad1TargetGroup.visible = false;
+    chestSurfaceGroup.add(pad1TargetGroup);
+
+    const pad1GuideMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.42 });
+    const pad1GuideBox = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.006, 0.16), pad1GuideMat);
+    pad1TargetGroup.add(pad1GuideBox);
+
+    const pad1Hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.32, 0.12, 0.28),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+    );
+    pad1Hitbox.userData.interactId = 'padTarget1';
+    pad1TargetGroup.add(pad1Hitbox);
+
+    // 貼片 2：患者左側乳頭下方偏外側（畫面右上方：+0.08, 0.006, -0.22）
+    const pad2Group = createPadVisual(0x2563eb, 1);
+    pad2Group.position.set(0.08, 0.006, -0.22);
+    pad2Group.visible = false;
+    chestSurfaceGroup.add(pad2Group);
+
+    // 貼片 2 學生練習點擊發光框
+    const pad2TargetGroup = new THREE.Group();
+    pad2TargetGroup.position.set(0.08, 0.004, -0.22);
+    pad2TargetGroup.visible = false;
+    chestSurfaceGroup.add(pad2TargetGroup);
+
+    const pad2GuideMat = new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.42 });
+    const pad2GuideBox = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.006, 0.16), pad2GuideMat);
+    pad2TargetGroup.add(pad2GuideBox);
+
+    const pad2Hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.32, 0.12, 0.28),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+    );
+    pad2Hitbox.userData.interactId = 'padTarget2';
+    pad2TargetGroup.add(pad2Hitbox);
+
+    // 藍色導線連接兩片貼片至外移後的 AED 左上角白色插孔 (-0.40, 0.19, -0.99)
+    // 貼片 1 世界座標: (-0.34, 0.42, 0.55 + 0.18 = 0.73)
+    const wire1Curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.34, 0.42, 0.73),
+      new THREE.Vector3(-0.46, 0.28, -0.10),
+      new THREE.Vector3(-0.40, 0.19, -0.99)
+    ]);
+    const wire1Mesh = new THREE.Mesh(
+      new THREE.TubeGeometry(wire1Curve, 20, 0.012, 8, false),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    );
+    wire1Mesh.visible = false;
+    scene.add(wire1Mesh);
+
+    // 貼片 2 世界座標: (+0.08, 0.42, 0.55 - 0.22 = 0.33)
+    const wire2Curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.08, 0.42, 0.33),
+      new THREE.Vector3(0.02, 0.24, -0.35),
+      new THREE.Vector3(-0.40, 0.19, -0.99)
+    ]);
+    const wire2Mesh = new THREE.Mesh(
+      new THREE.TubeGeometry(wire2Curve, 20, 0.012, 8, false),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    );
+    wire2Mesh.visible = false;
+    scene.add(wire2Mesh);
+
+    /**
+     * =========================================================================
+     * 6. 施救者小英雄與【精準幾何連接的雙手交疊與雙臂】模型
+     * =========================================================================
+     */
+    const heroGroup = createCharacter({
+      shirtColor: 0x0ea5e9,
+      pantsColor: 0x1e3a8a,
+      hairColor: 0x1e293b
+    });
+    heroGroup.position.set(-0.13, -0.35, 1.63);
+    heroGroup.rotation.y = Math.PI;
+    scene.add(heroGroup);
+
+    function createConnectedLimb(startVec, endVec, thickness, material) {
+      const dir = new THREE.Vector3().subVectors(endVec, startVec);
+      const length = dir.length();
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, length, thickness), material);
+      mesh.position.copy(startVec).addScaledVector(dir, 0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      mesh.castShadow = true;
+      return mesh;
+    }
+
+    const cprHandsGroup = new THREE.Group();
+    cprHandsGroup.position.set(-0.13, 0.018, 0);
+    cprHandsGroup.visible = false;
+    chestSurfaceGroup.add(cprHandsGroup);
+
+    const handSkinMat = new THREE.MeshLambertMaterial({ color: 0xffdbac });
+    const sleeveMat = new THREE.MeshLambertMaterial({ color: 0x0ea5e9 });
+
+    const bottomHand = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.032, 0.15), handSkinMat);
+    bottomHand.position.set(0, 0, -0.02);
+    bottomHand.castShadow = true;
+    cprHandsGroup.add(bottomHand);
+
+    const topHand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.032, 0.14), handSkinMat);
+    topHand.position.set(0, 0.030, -0.015);
+    topHand.rotation.y = 0.22;
+    topHand.castShadow = true;
+    cprHandsGroup.add(topHand);
+
+    const leftWrist = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.05, 0.085), handSkinMat);
+    leftWrist.position.set(-0.045, 0.042, 0.035);
+    cprHandsGroup.add(leftWrist);
+
+    const rightWrist = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.05, 0.085), handSkinMat);
+    rightWrist.position.set(0.045, 0.042, 0.035);
+    cprHandsGroup.add(rightWrist);
+
+    const leftArmLimb = createConnectedLimb(
+      new THREE.Vector3(-0.045, 0.042, 0.035),
+      new THREE.Vector3(-0.26, 0.68, 0.56),
+      0.095,
+      sleeveMat
+    );
+    cprHandsGroup.add(leftArmLimb);
+
+    const rightArmLimb = createConnectedLimb(
+      new THREE.Vector3(0.045, 0.042, 0.035),
+      new THREE.Vector3(0.26, 0.68, 0.56),
+      0.095,
+      sleeveMat
+    );
+    cprHandsGroup.add(rightArmLimb);
+
+    /**
+     * =========================================================================
+     * 7. 路人 A（手持擬真智慧型手機）、路人 B（AED 旁夥伴）、干擾角色 C/D
+     * =========================================================================
+     */
+    const personA = createCharacter({ shirtColor: 0x2563eb, pantsColor: 0x1e293b, hairColor: 0x451a03 });
+    personA.position.set(-2.9, 0, -1.2);
+    personA.rotation.y = 0.45;
+    personA.userData.interactId = 'personA';
+    scene.add(personA);
+
+    function createRealisticSmartphone() {
+      const phoneGroup = new THREE.Group();
+
+      const chassis = new THREE.Mesh(
+        new THREE.BoxGeometry(0.17, 0.32, 0.024),
+        new THREE.MeshLambertMaterial({ color: 0x0f172a })
+      );
+      chassis.castShadow = true;
+      phoneGroup.add(chassis);
+
+      const camBump = new THREE.Mesh(
+        new THREE.BoxGeometry(0.065, 0.075, 0.008),
+        new THREE.MeshLambertMaterial({ color: 0x1e293b })
+      );
+      camBump.position.set(-0.04, 0.105, -0.015);
+      phoneGroup.add(camBump);
+
+      [0.122, 0.088].forEach(ly => {
+        const lens = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.013, 0.013, 0.01, 14),
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+        );
+        lens.rotation.x = Math.PI / 2;
+        lens.position.set(-0.04, ly, -0.018);
+        phoneGroup.add(lens);
+      });
+
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = 128;
+      pCanvas.height = 256;
+      const pCtx = pCanvas.getContext('2d');
+      pCtx.fillStyle = '#0f172a';
+      pCtx.fillRect(0, 0, 128, 256);
+      pCtx.fillStyle = '#38bdf8';
+      pCtx.fillRect(10, 10, 108, 12);
+      pCtx.fillStyle = '#ef4444';
+      pCtx.fillRect(14, 42, 100, 68);
+      pCtx.fillStyle = '#ffffff';
+      pCtx.font = 'bold 42px sans-serif';
+      pCtx.textAlign = 'center';
+      pCtx.fillText('119', 64, 90);
+      pCtx.fillStyle = '#334155';
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          pCtx.beginPath();
+          pCtx.arc(32 + c * 32, 134 + r * 22, 7, 0, Math.PI * 2);
+          pCtx.fill();
+        }
+      }
+      pCtx.fillStyle = '#22c55e';
+      pCtx.beginPath();
+      pCtx.arc(64, 218, 18, 0, Math.PI * 2);
+      pCtx.fill();
+
+      const screenTex = new THREE.CanvasTexture(pCanvas);
+      const screenMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.15, 0.29),
+        new THREE.MeshBasicMaterial({ map: screenTex })
+      );
+      screenMesh.position.set(0, 0, 0.013);
+      phoneGroup.add(screenMesh);
+
+      const speaker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.006, 0.004),
+        new THREE.MeshBasicMaterial({ color: 0x475569 })
+      );
+      speaker.position.set(0, 0.148, 0.014);
+      phoneGroup.add(speaker);
+
+      return phoneGroup;
+    }
+
+    const phoneMesh = createRealisticSmartphone();
+    phoneMesh.position.set(0.46, 1.12, 0.26);
+    phoneMesh.rotation.set(-0.25, -0.3, 0.1);
+    personA.add(phoneMesh);
+
+    const personB = createCharacter({ shirtColor: 0xf59e0b, pantsColor: 0x334155, hairColor: 0x0f172a });
+    personB.position.set(2.9, 0, -2.7);
+    personB.rotation.y = -0.35;
+    personB.userData.interactId = 'personB';
+    scene.add(personB);
+
+    const personC = createCharacter({ shirtColor: 0x94a3b8, pantsColor: 0x475569, hairColor: 0x334155 });
+    personC.position.set(-4.3, 0, 0.6);
+    personC.rotation.y = 1.1;
+    personC.userData.interactId = 'personC';
+    scene.add(personC);
+
+    const drinkMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.06, 0.24, 12),
+      new THREE.MeshLambertMaterial({ color: 0xd97706 })
+    );
+    drinkMesh.position.set(0.44, 1.05, 0.22);
+    personC.add(drinkMesh);
+
+    const personD = createCharacter({ shirtColor: 0x6366f1, pantsColor: 0x1e293b, hairColor: 0x1e293b, hasBackpack: true });
+    personD.position.set(4.1, 0, 0.3);
+    personD.rotation.y = -1.0;
+    personD.userData.interactId = 'personD';
+    scene.add(personD);
+
+    /**
+     * =========================================================================
+     * 8. Philips HeartStart FRx 風格 3D AED 主機與黑色拉鍊收納包
+     * 【關鍵修正】：往患者左側外側獨立挪出至 (-0.25, 0.04, -0.78)，
+     * 與患者手臂保持明顯距離、絕不被患者遮擋！
+     * 主機下方（Z+ 方向，即朝向操作者正面）完整外露「橘色三角形閃電電擊鍵」，電擊時可直接點選！
+     * =========================================================================
+     */
+    const aedKitGroup = new THREE.Group();
+    aedKitGroup.position.set(-0.25, 0.04, -0.78);
+    aedKitGroup.visible = false;
+    aedKitGroup.userData.interactId = 'aedKit';
+    scene.add(aedKitGroup);
+
+    // 黑色拉鍊敞開式硬殼收納包
+    const blackBag = new THREE.Mesh(
+      new THREE.BoxGeometry(0.70, 0.08, 0.68),
+      new THREE.MeshLambertMaterial({ color: 0x18181b })
+    );
+    blackBag.position.y = 0.04;
+    blackBag.castShadow = true;
+    aedKitGroup.add(blackBag);
+
+    // 灰黑色 AED 主機機身
+    const aedBody = new THREE.Mesh(
+      new THREE.BoxGeometry(0.52, 0.09, 0.58),
+      new THREE.MeshLambertMaterial({ color: 0x4b5563 })
+    );
+    aedBody.position.y = 0.095;
+    aedBody.castShadow = true;
+    aedKitGroup.add(aedBody);
+
+    // ① 左上角白色矩形插孔座 + 藍色電擊插頭
+    const whiteSocket = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.025, 0.07),
+      new THREE.MeshBasicMaterial({ color: 0xf8fafc })
+    );
+    whiteSocket.position.set(-0.15, 0.145, -0.21);
+    whiteSocket.userData.interactId = 'aedSocket';
+    aedKitGroup.add(whiteSocket);
+
+    const bluePlug = new THREE.Mesh(
+      new THREE.BoxGeometry(0.095, 0.045, 0.085),
+      new THREE.MeshLambertMaterial({ color: 0x1d4ed8 })
+    );
+    bluePlug.position.set(-0.30, 0.12, -0.14);
+    bluePlug.userData.interactId = 'aedSocket';
+    aedKitGroup.add(bluePlug);
+
+    // ② 中上方圓形綠色電源鍵
+    const greenPowerBtn = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.050, 0.050, 0.024, 24),
+      new THREE.MeshBasicMaterial({ color: 0x16a34a })
+    );
+    greenPowerBtn.position.set(0, 0.146, -0.19);
+    greenPowerBtn.userData.interactId = 'aedPowerBtn';
+    aedKitGroup.add(greenPowerBtn);
+
+    const powerRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.022, 0.032, 20),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+    );
+    powerRing.rotation.x = -Math.PI / 2;
+    powerRing.position.set(0, 0.16, -0.19);
+    aedKitGroup.add(powerRing);
+
+    // ③ 中央 LCD 螢幕（動態 Canvas 貼圖）
+    const lcdCanvas = document.createElement('canvas');
+    lcdCanvas.width = 256;
+    lcdCanvas.height = 192;
+    const lcdCtx = lcdCanvas.getContext('2d');
+    const lcdTexture = new THREE.CanvasTexture(lcdCanvas);
+
+    function updateAedLcdScreen(mode) {
+      lcdCtx.fillStyle = mode === 'off' ? '#1e293b' : '#e0f2fe';
+      lcdCtx.fillRect(0, 0, 256, 192);
+      lcdCtx.strokeStyle = '#0f172a';
+      lcdCtx.lineWidth = 8;
+      lcdCtx.strokeRect(4, 4, 248, 184);
+
+      if (mode === 'off') {
+        lcdCtx.fillStyle = '#94a3b8';
+        lcdCtx.font = 'bold 26px "Noto Sans TC", sans-serif';
+        lcdCtx.textAlign = 'center';
+        lcdCtx.fillText('請按綠色電源鍵', 128, 105);
+      } else if (mode === 'pads') {
+        lcdCtx.fillStyle = '#0369a1';
+        lcdCtx.font = 'bold 22px "Noto Sans TC", sans-serif';
+        lcdCtx.textAlign = 'center';
+        lcdCtx.fillText('1. 點胸口貼上貼片', 128, 38);
+        lcdCtx.fillStyle = '#fed7aa';
+        lcdCtx.fillRect(68, 54, 120, 118);
+        // 左下方（患者右側鎖骨下）
+        lcdCtx.fillStyle = '#ef4444';
+        lcdCtx.fillRect(80, 126, 32, 26);
+        // 右上方（患者左側乳頭下外側）
+        lcdCtx.fillStyle = '#2563eb';
+        lcdCtx.fillRect(144, 66, 32, 26);
+      } else if (mode === 'plug') {
+        lcdCtx.fillStyle = '#b45309';
+        lcdCtx.font = 'bold 26px "Noto Sans TC", sans-serif';
+        lcdCtx.textAlign = 'center';
+        lcdCtx.fillText('2. 插上藍色插頭', 128, 90);
+        lcdCtx.font = 'bold 22px "Noto Sans TC", sans-serif';
+        lcdCtx.fillText('↖ 插入左上角插孔', 128, 132);
+      } else if (mode === 'shock') {
+        lcdCtx.fillStyle = '#dc2626';
+        lcdCtx.fillRect(12, 12, 232, 168);
+        lcdCtx.fillStyle = '#ffffff';
+        lcdCtx.font = 'bold 28px "Noto Sans TC", sans-serif';
+        lcdCtx.textAlign = 'center';
+        lcdCtx.fillText('建議電擊！', 128, 72);
+        lcdCtx.font = 'bold 22px "Noto Sans TC", sans-serif';
+        lcdCtx.fillText('↓ 點下方橘色電擊鍵', 128, 124);
+      }
+      lcdTexture.needsUpdate = true;
+    }
+    updateAedLcdScreen('off');
+
+    const aedLcdMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.28, 0.21),
+      new THREE.MeshBasicMaterial({ map: lcdTexture })
+    );
+    aedLcdMesh.rotation.x = -Math.PI / 2;
+    aedLcdMesh.position.set(0, 0.145, -0.02);
+    aedKitGroup.add(aedLcdMesh);
+
+    // 螢幕下方三顆小圓形功能鈕
+    [-0.08, 0, 0.08].forEach(bx => {
+      const smallBtn = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, 0.015, 16),
+        new THREE.MeshLambertMaterial({ color: 0x9ca3af })
+      );
+      smallBtn.position.set(bx, 0.144, 0.115);
+      aedKitGroup.add(smallBtn);
+    });
+
+    // ④ 機器最下方（Z = +0.215）完整外露的「橘色三角形閃電電擊鍵」
+    const orangeShockGroup = new THREE.Group();
+    orangeShockGroup.position.set(0, 0.146, 0.215);
+    orangeShockGroup.userData.interactId = 'aedOrangeShockBtn';
+    aedKitGroup.add(orangeShockGroup);
+
+    const triShape = new THREE.Shape();
+    triShape.moveTo(0, 0.068);
+    triShape.lineTo(-0.064, -0.052);
+    triShape.lineTo(0.064, -0.052);
+    triShape.closePath();
+
+    const orangeShockGeo = new THREE.ExtrudeGeometry(triShape, { depth: 0.026, bevelEnabled: false });
+    const orangeShockMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+    const orangeShockBtn = new THREE.Mesh(orangeShockGeo, orangeShockMat);
+    orangeShockBtn.rotation.x = -Math.PI / 2;
+    orangeShockBtn.userData.interactId = 'aedOrangeShockBtn';
+    orangeShockGroup.add(orangeShockBtn);
+
+    // 橘色電擊鍵上的白色閃電標誌
+    const boltMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.018, 0.032, 0.055),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    boltMesh.position.set(0, 0.016, -0.005);
+    boltMesh.userData.interactId = 'aedOrangeShockBtn';
+    orangeShockGroup.add(boltMesh);
+
+    // 橘色電擊鍵放大無形觸控熱區（確保平板與觸控筆一按就中）
+    const shockHitbox = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.11, 0.08, 16),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+    );
+    shockHitbox.userData.interactId = 'aedOrangeShockBtn';
+    orangeShockGroup.add(shockHitbox);
+
+    // 橘色電擊鍵外圍發光提示環
+    const shockHighlightRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.072, 0.10, 28),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0 })
+    );
+    shockHighlightRing.rotation.x = -Math.PI / 2;
+    shockHighlightRing.position.y = 0.008;
+    orangeShockGroup.add(shockHighlightRing);
+
+    // 9. 第 6 關：3D 救護車與擔架
+    const ambulanceGroup = new THREE.Group();
+    ambulanceGroup.position.set(14, 0, -2.5);
+    ambulanceGroup.visible = false;
+    scene.add(ambulanceGroup);
+
+    const ambBody = new THREE.Mesh(
+      new THREE.BoxGeometry(3.8, 1.85, 1.75),
+      new THREE.MeshLambertMaterial({ color: 0xffffff })
+    );
+    ambBody.position.y = 1.25;
+    ambBody.castShadow = true;
+    ambulanceGroup.add(ambBody);
+
+    const ambStripe = new THREE.Mesh(
+      new THREE.BoxGeometry(3.84, 0.35, 1.79),
+      new THREE.MeshLambertMaterial({ color: 0xef4444 })
+    );
+    ambStripe.position.y = 1.05;
+    ambulanceGroup.add(ambStripe);
+
+    const ambCab = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 1.35, 1.65),
+      new THREE.MeshLambertMaterial({ color: 0xf8fafc })
+    );
+    ambCab.position.set(-2.1, 1.0, 0);
+    ambulanceGroup.add(ambCab);
+
+    const sirenRed = new THREE.Mesh(
+      new THREE.BoxGeometry(0.35, 0.22, 0.35),
+      new THREE.MeshBasicMaterial({ color: 0xef4444 })
+    );
+    sirenRed.position.set(-1.6, 2.25, 0.4);
+    ambulanceGroup.add(sirenRed);
+
+    const sirenBlue = new THREE.Mesh(
+      new THREE.BoxGeometry(0.35, 0.22, 0.35),
+      new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+    );
+    sirenBlue.position.set(-1.6, 2.25, -0.4);
+    ambulanceGroup.add(sirenBlue);
+
+    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.25, 16);
+    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+    [[-1.8, 0.85], [-1.8, -0.85], [1.2, 0.85], [1.2, -0.85]].forEach(([wx, wz]) => {
+      const w = new THREE.Mesh(wheelGeo, wheelMat);
+      w.rotation.x = Math.PI / 2;
+      w.position.set(wx, 0.38, wz);
+      ambulanceGroup.add(w);
+    });
+
+    /**
+     * =========================================================================
+     * 9. 3D 場景點擊互動、拖曳旋轉與 ResizeObserver 自適應
+     * =========================================================================
+     */
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let pointerDownTime = 0;
+
+    canvasContainer.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      pointerDownTime = Date.now();
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+
+      desiredCam.theta -= dx * 0.006;
+      desiredCam.theta = Math.max(-0.95, Math.min(0.95, desiredCam.theta));
+      desiredCam.phi -= dy * 0.005;
+      desiredCam.phi = Math.max(0.32, Math.min(1.28, desiredCam.phi));
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      if (Date.now() - pointerDownTime < 280) {
+        handle3DSceneClick(e);
+      }
+    });
+
+    function findInteractIdInIntersects(intersects, priorityIds = []) {
+      // 1. 先依優先順序尋找特定部位（例如貼片目標區、機器下方橘色電擊鍵）
+      for (const pid of priorityIds) {
+        for (const hit of intersects) {
+          let curr = hit.object;
+          while (curr) {
+            if (curr.userData && curr.userData.interactId === pid) return pid;
+            curr = curr.parent;
+          }
+        }
+      }
+      // 2. 否則回傳最上層命中的物件 ID
+      for (const hit of intersects) {
+        let curr = hit.object;
+        while (curr) {
+          if (curr.userData && curr.userData.interactId) return curr.userData.interactId;
+          curr = curr.parent;
+        }
+      }
+      return null;
+    }
+
+    function handle3DSceneClick(e) {
+      if (GAME_STATE.stage === 0 || GAME_STATE.stage === 6 || GAME_STATE.isTransitioning) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointer, camera);
+      const targets = [patientCarrier, personA, personB, personC, personD, aedKitGroup];
+      const intersects = raycaster.intersectObjects(targets, true);
+
+      if (intersects.length > 0) {
+        const id = findInteractIdInIntersects(intersects, [
+          'padTarget1',
+          'padTarget2',
+          'aedOrangeShockBtn',
+          'aedPowerBtn',
+          'aedSocket'
+        ]);
+        if (!id) return;
+
+        if (GAME_STATE.stage === 1 && id === 'patient' && GAME_STATE.subStep === 0) {
+          triggerAction('tapAndAsk');
+        } else if (GAME_STATE.stage === 2) {
+          if (id === 'personA') triggerAction('directCall119');
+          else if (id === 'personC') triggerAction('wrongPersonC');
+          else if (id === 'personD') triggerAction('wrongPersonD');
+        } else if (GAME_STATE.stage === 3) {
+          if (id === 'personB') triggerAction('directFetchAed');
+          else if (id === 'personC') triggerAction('wrongPersonC');
+          else if (id === 'personD') triggerAction('wrongPersonD');
+        } else if (GAME_STATE.stage === 4 && id === 'patient') {
+          triggerAction('cprCompress');
+        } else if (GAME_STATE.stage === 5) {
+          if (GAME_STATE.subStep === 0) {
+            if (id === 'aedPowerBtn' || id === 'aedKit') triggerAction('aedPower');
+          } else if (GAME_STATE.subStep === 1) {
+            // 子步驟 2（貼）：學生親自點擊患者胸口兩個貼片發光位置練習貼附
+            if (id === 'padTarget1') {
+              triggerAction('placePad1');
+            } else if (id === 'padTarget2') {
+              triggerAction('placePad2');
+            } else if (id === 'patient') {
+              soundEngine.playGentleHint();
+              GAME_STATE.showHintAfterError = true;
+              speakText('請貼在胸口發光框框的位置喔！一片在右側鎖骨下方，一片在左側乳頭下方偏外側！');
+              showFeedback('💡 請貼在胸口發光框框的位置喔！（右側鎖骨下方、左側乳頭下方偏外側）', false);
+            }
+          } else if (GAME_STATE.subStep === 2) {
+            if (id === 'aedSocket' || id === 'aedKit') triggerAction('aedPlug');
+          } else if (GAME_STATE.subStep === 3) {
+            // 子步驟 4（電）：直接點選 AED 機器下方的橘色電擊鍵
+            if (id === 'aedOrangeShockBtn') {
+              triggerAction('aedShock');
+            } else if (id === 'aedKit') {
+              soundEngine.playGentleHint();
+              speakText('請直接點選 AED 機器最下方閃爍的橘色電擊鍵喔！');
+              showFeedback('💡 請直接點選 AED 機器最下方閃爍的「橘色電擊鍵」喔！', false);
+            }
+          }
+        }
+      }
+    }
+
+    // 支援空白鍵按壓 CPR
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && GAME_STATE.stage === 4) {
+        e.preventDefault();
+        handleCprPress();
+      }
+    });
+
+    // ResizeObserver 自適應 iPad 分割畫面與教室觸控大屏
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+          renderer.setSize(width, height);
+        }
+      }
+    });
+    resizeObserver.observe(sceneWrapper);
+
+    /**
+     * =========================================================================
+     * 10. 3D 頭頂標籤投影與主動畫迴圈
+     * =========================================================================
+     */
+    const labelPatient = document.getElementById('label-patient');
+    const labelPersonA = document.getElementById('label-personA');
+    const labelPersonB = document.getElementById('label-personB');
+    const labelPersonC = document.getElementById('label-personC');
+    const labelPersonD = document.getElementById('label-personD');
+    const labelPad1 = document.getElementById('label-pad1');
+    const labelPad2 = document.getElementById('label-pad2');
+    const labelShockBtn = document.getElementById('label-shock-btn');
+
+    function projectToScreen(worldPos, element) {
+      const vec = worldPos.clone().project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = (vec.x * 0.5 + 0.5) * rect.width;
+      const y = (-vec.y * 0.5 + 0.5) * rect.height;
+
+      if (vec.z > 1 || x < 0 || x > rect.width || y < 0 || y > rect.height) {
+        element.style.opacity = '0';
+      } else {
+        element.style.opacity = '1';
+        element.style.left = `${x}px`;
+        element.style.top = `${y}px`;
+      }
+    }
+
+    let cprAnimTimer = 0;
+    let tapAnimTimer = 0;
+
+    function animate(time) {
+      requestAnimationFrame(animate);
+      const t = time * 0.001;
+
+      // 平滑插值攝影機運鏡
+      currentCam.target.lerp(desiredCam.target, 0.09);
+      currentCam.radius += (desiredCam.radius - currentCam.radius) * 0.09;
+      currentCam.theta += (desiredCam.theta - currentCam.theta) * 0.09;
+      currentCam.phi += (desiredCam.phi - currentCam.phi) * 0.09;
+      applyCameraTransform();
+
+      // 胸口「兩乳頭連線中央」靶心呼吸光圈
+      const showChestGuide = (GAME_STATE.stage === 1 || GAME_STATE.stage === 4) &&
+        (GAME_STATE.mode === 'learn' || (GAME_STATE.mode === 'practice' && GAME_STATE.showHintAfterError));
+      chestTargetGroup.visible = showChestGuide;
+      if (showChestGuide) {
+        const s = 1 + Math.sin(t * 6) * 0.18;
+        chestRing.scale.set(s, s, 1);
+      }
+
+      // 第 5 關子步驟 2（貼）：貼片目標區呼吸發光引導
+      const isPadTraining = (GAME_STATE.stage === 5 && GAME_STATE.subStep === 1);
+      pad1TargetGroup.visible = isPadTraining && !GAME_STATE.pad1Placed;
+      pad2TargetGroup.visible = isPadTraining && !GAME_STATE.pad2Placed;
+      if (isPadTraining) {
+        const pulseOpacity = 0.35 + Math.sin(t * 8) * 0.25;
+        pad1GuideMat.opacity = pulseOpacity;
+        pad2GuideMat.opacity = pulseOpacity;
+        const s = 1 + Math.sin(t * 8) * 0.08;
+        pad1TargetGroup.scale.set(s, 1, s);
+        pad2TargetGroup.scale.set(s, 1, s);
+      }
+
+      // 拍肩動畫
+      if (tapAnimTimer > 0) {
+        tapAnimTimer -= 0.025;
+        heroGroup.userData.rightArm.rotation.x = -1.25 + Math.sin(t * 26) * 0.35;
+        heroGroup.userData.leftArm.rotation.x = -1.15 - Math.sin(t * 26) * 0.35;
+        patientGroup.position.z = Math.sin(t * 28) * 0.02;
+      } else {
+        heroGroup.userData.rightArm.rotation.x = 0;
+        heroGroup.userData.leftArm.rotation.x = 0;
+        patientGroup.position.z = 0;
+      }
+
+      // 第 4 關 CPR：雙手交疊與雙臂精準連貫下壓回彈
+      if (GAME_STATE.stage === 4) {
+        heroGroup.visible = false;
+        cprHandsGroup.visible = true;
+        const pressDepth = cprAnimTimer > 0 ? Math.sin(cprAnimTimer * Math.PI) * 0.05 : 0;
+        if (cprAnimTimer > 0) {
+          cprAnimTimer = Math.max(0, cprAnimTimer - 0.085);
+          cprRipple.visible = true;
+          const rScale = 1 + (1 - cprAnimTimer) * 2.4;
+          cprRipple.scale.set(rScale, rScale, 1);
+          cprRipple.material.opacity = cprAnimTimer * 0.85;
+        } else {
+          cprRipple.visible = false;
+        }
+        chestSurfaceGroup.position.y = 0.415 - pressDepth;
+        patientGroup.position.y = 0.24 - pressDepth * 0.65;
+      } else {
+        heroGroup.visible = !GAME_STATE.patientLoaded;
+        cprHandsGroup.visible = false;
+        cprRipple.visible = false;
+        chestSurfaceGroup.position.y = 0.415;
+        patientGroup.position.y = 0.24;
+      }
+
+      // 路人 A 撥打 119 動畫
+      if (GAME_STATE.personAState === 'calling') {
+        personA.userData.rightArm.rotation.x = -2.35;
+        phoneMesh.position.set(0.44, 1.48, 0.28);
+        phoneMesh.rotation.set(-0.6, -0.4, 0.15);
+        personA.userData.headGroup.rotation.x = Math.sin(t * 8) * 0.12;
+      } else {
+        personA.userData.rightArm.rotation.x = -0.45;
+        phoneMesh.position.set(0.46, 1.12, 0.26);
+        phoneMesh.rotation.set(-0.25, -0.3, 0.1);
+        personA.userData.headGroup.rotation.x = 0;
+      }
+
+      // 路人 B 取來 AED 收納包放在患者左肩外側獨立空位 (-0.25, 0.04, -0.78)
+      if (GAME_STATE.personBState === 'fetching') {
+        personB.position.x += (0.85 - personB.position.x) * 0.07;
+        personB.position.z += (-1.25 - personB.position.z) * 0.07;
+        personB.position.y = Math.abs(Math.sin(t * 14)) * 0.12;
+        if (Math.abs(personB.position.x - 0.85) < 0.18) {
+          GAME_STATE.personBState = 'delivered';
+          wallAedBag.visible = false;
+          aedKitGroup.visible = true;
+          personB.position.y = 0;
+        }
+      }
+
+      // 第 5 關電擊前清空周圍人員
+      if (GAME_STATE.crowdCleared) {
+        personA.position.x += (-3.8 - personA.position.x) * 0.08;
+        personB.position.x += (2.8 - personB.position.x) * 0.08;
+        personA.userData.leftArm.rotation.z = 2.6;
+        personB.userData.rightArm.rotation.z = -2.6;
+      }
+
+      // 第 5 關第 4 小步（subStep === 3）：機器下方橘色三角形電擊鍵高亮閃爍並放大熱區提示
+      if (GAME_STATE.stage === 5 && GAME_STATE.subStep === 3) {
+        const pulse = Math.sin(t * 12) > 0;
+        orangeShockMat.color.setHex(pulse ? 0xf97316 : 0xfacc15);
+        const s = 1.15 + Math.sin(t * 10) * 0.14;
+        orangeShockGroup.scale.set(s, 1, s);
+        shockHighlightRing.material.opacity = 0.95;
+      } else {
+        orangeShockMat.color.setHex(0xf97316);
+        orangeShockGroup.scale.set(1, 1, 1);
+        shockHighlightRing.material.opacity = 0;
+      }
+
+      // 第 6 關：救護車鳴笛進場並載走患者
+      if (GAME_STATE.ambulanceState === 'arriving') {
+        ambulanceGroup.visible = true;
+        ambulanceGroup.position.x += (2.2 - ambulanceGroup.position.x) * 0.045;
+        if (Math.abs(ambulanceGroup.position.x - 2.2) < 0.18) {
+          GAME_STATE.ambulanceState = 'loading';
+          setTimeout(() => {
+            GAME_STATE.patientLoaded = true;
+            patientCarrier.visible = false;
+            aedKitGroup.visible = false;
+            wire1Mesh.visible = false;
+            wire2Mesh.visible = false;
+            GAME_STATE.ambulanceState = 'departing';
+          }, 900);
+        }
+      } else if (GAME_STATE.ambulanceState === 'departing') {
+        ambulanceGroup.position.x -= 0.14;
+        if (ambulanceGroup.position.x < -16) {
+          ambulanceGroup.visible = false;
+        }
+      }
+
+      if (ambulanceGroup.visible) {
+        const flash = Math.sin(t * 16) > 0;
+        sirenRed.material.color.setHex(flash ? 0xff0000 : 0x7f1d1d);
+        sirenBlue.material.color.setHex(!flash ? 0x3b82f6 : 0x1e3a8a);
+      }
+
+      // 更新 3D 頭頂浮動標籤（第 1～3 關人物標籤）
+      if (GAME_STATE.stage >= 1 && GAME_STATE.stage <= 3) {
+        labelPatient.classList.remove('hidden');
+        labelPersonA.classList.remove('hidden');
+        labelPersonB.classList.remove('hidden');
+        labelPersonC.classList.remove('hidden');
+        labelPersonD.classList.remove('hidden');
+
+        projectToScreen(new THREE.Vector3(-0.45, 0.72, 0.55), labelPatient);
+        projectToScreen(new THREE.Vector3(personA.position.x, 2.35, personA.position.z), labelPersonA);
+        projectToScreen(new THREE.Vector3(personB.position.x, 2.35, personB.position.z), labelPersonB);
+        projectToScreen(new THREE.Vector3(personC.position.x, 2.35, personC.position.z), labelPersonC);
+        projectToScreen(new THREE.Vector3(personD.position.x, 2.35, personD.position.z), labelPersonD);
+      } else {
+        labelPatient.classList.add('hidden');
+        labelPersonA.classList.add('hidden');
+        labelPersonB.classList.add('hidden');
+        labelPersonC.classList.add('hidden');
+        labelPersonD.classList.add('hidden');
+      }
+
+      // 第 5 關貼片練習浮動指示標籤（學習模式或錯誤引導後顯示）
+      const showPadLabels = isPadTraining && (GAME_STATE.mode === 'learn' || GAME_STATE.showHintAfterError);
+      if (showPadLabels && !GAME_STATE.pad1Placed) {
+        labelPad1.classList.remove('hidden');
+        projectToScreen(new THREE.Vector3(-0.34, 0.50, 0.73), labelPad1);
+      } else {
+        labelPad1.classList.add('hidden');
+      }
+
+      if (showPadLabels && !GAME_STATE.pad2Placed) {
+        labelPad2.classList.remove('hidden');
+        projectToScreen(new THREE.Vector3(0.08, 0.50, 0.33), labelPad2);
+      } else {
+        labelPad2.classList.add('hidden');
+      }
+
+      // 第 5 關第 4 小步：橘色電擊鍵浮動提示標籤
+      if (GAME_STATE.stage === 5 && GAME_STATE.subStep === 3) {
+        labelShockBtn.classList.remove('hidden');
+        projectToScreen(new THREE.Vector3(-0.25, 0.28, -0.56), labelShockBtn);
+      } else {
+        labelShockBtn.classList.add('hidden');
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    /**
+     * =========================================================================
+     * 11. 右側 20% 緊湊高對比工作分析（Task Analysis）UI 渲染與互動邏輯
+     * =========================================================================
+     */
+    const progressBarEl = document.getElementById('progress-bar');
+    const panelContentEl = document.getElementById('panel-content');
+
+    const STAGES_META = [
+      { id: 1, short: '1.叫' },
+      { id: 2, short: '2.119' },
+      { id: 3, short: '3.AED' },
+      { id: 4, short: '4.CPR' },
+      { id: 5, short: '5.電擊' },
+      { id: 6, short: '6.完成' }
+    ];
+
+    function renderProgressBar() {
+      progressBarEl.innerHTML = STAGES_META.map(s => {
+        const isDone = GAME_STATE.stage > s.id;
+        const isCurrent = GAME_STATE.stage === s.id;
+        let cls = 'bg-slate-200 text-slate-500 border-slate-300';
+        if (isDone) cls = 'bg-emerald-500 text-white border-emerald-600';
+        if (isCurrent) cls = 'bg-blue-600 text-white border-blue-800 ring-2 ring-blue-300';
+        return `
+          <div class="py-1 px-0.5 rounded-lg border text-center font-black text-xs transition-all ${cls}">
+            ${isDone ? '✓' : s.short}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function shouldShowHint() {
+      if (GAME_STATE.mode === 'learn') return true;
+      if (GAME_STATE.mode === 'practice' && GAME_STATE.showHintAfterError) return true;
+      return false;
+    }
+
+    function resetSimulationState() {
+      GAME_STATE.subStep = 0;
+      GAME_STATE.pad1Placed = false;
+      GAME_STATE.pad2Placed = false;
+      GAME_STATE.isTransitioning = false;
+      GAME_STATE.showHintAfterError = false;
+      GAME_STATE.cprCount = 0;
+      GAME_STATE.cprValidCount = 0;
+      GAME_STATE.cprTimestamps = [];
+      GAME_STATE.cprIntervals = [];
+      GAME_STATE.personAState = 'idle';
+      GAME_STATE.personBState = 'idle';
+      GAME_STATE.crowdCleared = false;
+      GAME_STATE.ambulanceState = 'hidden';
+      GAME_STATE.patientLoaded = false;
+
+      patientCarrier.visible = true;
+      patientGroup.position.set(1.02, 0.24, 0);
+      chestSurfaceGroup.position.y = 0.415;
+      personA.position.set(-2.9, 0, -1.2);
+      personA.userData.leftArm.rotation.set(0, 0, 0);
+      personB.position.set(2.9, 0, -2.7);
+      personB.userData.rightArm.rotation.set(0, 0, 0);
+
+      wallAedBag.visible = true;
+      aedKitGroup.visible = false;
+      bluePlug.position.set(-0.30, 0.12, -0.14);
+      updateAedLcdScreen('off');
+      pad1Group.visible = false;
+      pad2Group.visible = false;
+      pad1TargetGroup.visible = false;
+      pad2TargetGroup.visible = false;
+      wire1Mesh.visible = false;
+      wire2Mesh.visible = false;
+
+      ambulanceGroup.visible = false;
+      ambulanceGroup.position.set(14, 0, -2.5);
+
+      document.getElementById('bubble-patient').classList.add('hidden');
+      document.getElementById('bubble-personA').classList.add('hidden');
+      document.getElementById('bubble-personB').classList.add('hidden');
+      document.getElementById('bubble-personC').classList.add('hidden');
+      document.getElementById('bubble-personD').classList.add('hidden');
+      soundEngine.stopMetronome();
+      setCameraPreset('overview');
+    }
+
+    function goToStage(stageNum) {
+      GAME_STATE.stage = stageNum;
+      GAME_STATE.subStep = 0;
+      GAME_STATE.pad1Placed = false;
+      GAME_STATE.pad2Placed = false;
+      GAME_STATE.isTransitioning = false;
+      GAME_STATE.showHintAfterError = false;
+      soundEngine.stopMetronome();
+      renderProgressBar();
+
+      if (stageNum === 0) {
+        setCameraPreset('overview');
+        renderHomeScreen();
+      } else if (stageNum === 1) {
+        setCameraPreset('stage1');
+        renderStage1();
+      } else if (stageNum === 2) {
+        setCameraPreset('overview');
+        renderStage2();
+      } else if (stageNum === 3) {
+        setCameraPreset('overview');
+        renderStage3();
+      } else if (stageNum === 4) {
+        setCameraPreset('cprZoom');
+        renderStage4();
+      } else if (stageNum === 5) {
+        aedKitGroup.visible = true;
+        wallAedBag.visible = false;
+        setCameraPreset('aedZoom');
+        renderStage5();
+      } else if (stageNum === 6) {
+        setCameraPreset('ending');
+        renderStage6();
+      }
+    }
+
+    // 重置當前關卡最佳特寫鏡頭
+    document.getElementById('btn-reset-cam').addEventListener('click', () => {
+      soundEngine.playSuccess();
+      if (GAME_STATE.stage === 1) setCameraPreset('stage1');
+      else if (GAME_STATE.stage === 4) setCameraPreset('cprZoom');
+      else if (GAME_STATE.stage === 5) {
+        setCameraPreset(GAME_STATE.subStep === 1 ? 'aedPads' : 'aedZoom');
+      } else if (GAME_STATE.stage === 6) setCameraPreset('ending');
+      else setCameraPreset('overview');
+    });
+
+    /**
+     * -------------------------------------------------------------------------
+     * 畫面 0：首頁（差異化教學模式 + 可折疊「▶ 老師設定」）
+     * -------------------------------------------------------------------------
+     */
+    function renderHomeScreen() {
+      resetSimulationState();
+      const modes = [
+        {
+          id: 'learn',
+          title: '🌟 學習模式',
+          desc: '常駐提示與瞄準框引導',
+          color: 'border-emerald-500 bg-emerald-50 text-emerald-950'
+        },
+        {
+          id: 'practice',
+          title: '🎯 練習模式',
+          desc: '錯誤後才顯示溫和引導',
+          color: 'border-blue-500 bg-blue-50 text-blue-950'
+        },
+        {
+          id: 'challenge',
+          title: '🏆 挑戰模式',
+          desc: '無文字提示獨立操作',
+          color: 'border-amber-500 bg-amber-50 text-amber-950'
+        }
+      ];
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-3">
+          <div class="bg-sky-50 border-2 border-sky-200 rounded-2xl p-3 text-center">
+            <div class="inline-block bg-rose-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full mb-1">
+              突發狀況模擬
+            </div>
+            <h1 class="text-lg xl:text-xl font-black text-slate-900">
+              有人平躺在地上昏倒了！
+            </h1>
+            <p class="text-sm font-bold text-slate-600 mt-0.5">
+              跟著「叫・叫・C・D」完成救援！
+            </p>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-sm font-black text-slate-700">選擇學習鷹架模式：</div>
+            ${modes.map(m => `
+              <button type="button" onclick="selectMode('${m.id}')"
+                class="w-full text-left p-2.5 rounded-xl transition-all flex items-center justify-between ${GAME_STATE.mode === m.id ? m.color + ' ring-2 ring-sky-400 border-2' : 'bg-white border-2 border-slate-200 hover:bg-slate-50'}">
+                <div>
+                  <div class="text-base font-black">${m.title}</div>
+                  <div class="text-xs font-bold opacity-80">${m.desc}</div>
+                </div>
+                <div class="text-xl font-black">${GAME_STATE.mode === m.id ? '✅' : '⚪'}</div>
+              </button>
+            `).join('')}
+          </div>
+
+          <details class="bg-slate-100 border-2 border-slate-300 rounded-xl p-2.5">
+            <summary class="cursor-pointer font-black text-sm text-slate-800 select-none">
+              ▶ 老師設定（CPR 次數與節拍音效）
+            </summary>
+            <div class="mt-2.5 pt-2.5 border-t border-slate-200 space-y-2.5">
+              <div>
+                <div class="text-xs font-black text-slate-700 mb-1">CPR 目標按壓次數：</div>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <button type="button" onclick="setCprTarget(15)"
+                    class="py-2 px-2 rounded-lg font-black text-xs border-2 ${GAME_STATE.cprTarget === 15 ? 'bg-blue-600 text-white border-blue-800' : 'bg-white text-slate-800 border-slate-300'}">
+                    15 下（體驗版）
+                  </button>
+                  <button type="button" onclick="setCprTarget(30)"
+                    class="py-2 px-2 rounded-lg font-black text-xs border-2 ${GAME_STATE.cprTarget === 30 ? 'bg-blue-600 text-white border-blue-800' : 'bg-white text-slate-800 border-slate-300'}">
+                    30 下（標準版）
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+                <span class="font-black text-xs text-slate-800">節拍器提示音</span>
+                <button type="button" onclick="toggleMetronomeSound()"
+                  class="px-3 py-1 rounded-lg font-black text-xs ${GAME_STATE.metronomeSound ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700'}">
+                  ${GAME_STATE.metronomeSound ? '開啟 🔊' : '關閉 🔇'}
+                </button>
+              </div>
+            </div>
+          </details>
+
+          <button type="button" onclick="startGame()"
+            class="tactile-btn w-full min-h-[60px] bg-rose-600 hover:bg-rose-500 text-white font-black text-xl rounded-2xl border-b-4 border-rose-800 flex items-center justify-center gap-2">
+            <span>🚑</span>
+            <span>開始急救任務！</span>
+          </button>
+        </div>
+      `;
+    }
+
+    window.selectMode = (mode) => {
+      GAME_STATE.mode = mode;
+      soundEngine.playSuccess();
+      renderHomeScreen();
+    };
+    window.setCprTarget = (num) => {
+      GAME_STATE.cprTarget = num;
+      soundEngine.playSuccess();
+      renderHomeScreen();
+    };
+    window.toggleMetronomeSound = () => {
+      GAME_STATE.metronomeSound = !GAME_STATE.metronomeSound;
+      soundEngine.playSuccess();
+      renderHomeScreen();
+    };
+    window.startGame = () => {
+      soundEngine.init();
+      soundEngine.playSuccess();
+      GAME_STATE.startTime = Date.now();
+      goToStage(1);
+    };
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第一關【叫：拍肩並連續詢問「先生、小姐，你還好嗎？你怎麼了？」】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage1() {
+      const introText = '第一關：叫。看到有人平躺在地上，請拍拍他的肩膀並大聲詢問！';
+      speakText(introText);
+
+      const hintHtml = shouldShowHint() ? `
+        <div class="bg-amber-50 border-2 border-amber-400 rounded-xl p-2.5 text-amber-950 font-bold text-sm flex items-start gap-2">
+          <span class="text-lg">💡</span>
+          <span>點擊左側平躺患者，或按下方按鈕拍肩詢問！</span>
+        </div>
+      ` : '';
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center justify-between bg-rose-100 border-2 border-rose-300 px-3 py-2 rounded-xl">
+            <span class="text-base font-black text-rose-800">1.【叫：確認意識】</span>
+            <button type="button" onclick="speakText('${introText}')"
+              class="min-h-[44px] min-w-[44px] bg-white hover:bg-rose-50 text-rose-700 rounded-lg border-2 border-rose-300 text-xl flex items-center justify-center">
+              🔊
+            </button>
+          </div>
+
+          <p class="text-lg font-black text-slate-900 leading-snug">
+            看到有人平躺在地上，第一步要做什麼？
+          </p>
+
+          ${hintHtml}
+
+          <button id="btn-stage1-action" type="button" onclick="triggerAction('tapAndAsk')"
+            class="tactile-btn w-full min-h-[76px] p-3.5 rounded-2xl font-black text-base flex flex-col items-start justify-center bg-blue-600 hover:bg-blue-500 text-white text-left">
+            <div>👐 拍拍雙肩並大聲問：</div>
+            <div class="text-sm text-sky-100 mt-1">「先生、小姐，你還好嗎？你怎麼了？」</div>
+          </button>
+
+          <div id="feedback-box" class="hidden p-2.5 rounded-xl font-black text-sm text-center"></div>
+        </div>
+      `;
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第二關【叫：直接點選拿手機的路人撥打 119】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage2() {
+      const promptText = '第二關：叫。患者沒有反應！請直接點選拿手機的路人，請他幫忙打 119！';
+      speakText(promptText);
+
+      const hintHtml = shouldShowHint() ? `
+        <div class="bg-amber-50 border-2 border-amber-400 rounded-xl p-2.5 text-amber-950 font-bold text-sm flex items-start gap-2">
+          <span class="text-lg">💡</span>
+          <span>直接點擊左側「📱 拿手機的路人」或下方按鈕！</span>
+        </div>
+      ` : '';
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center justify-between bg-blue-100 border-2 border-blue-300 px-3 py-2 rounded-xl">
+            <span class="text-base font-black text-blue-800">2.【叫：指定打 119】</span>
+            <button type="button" onclick="speakText('${promptText}')"
+              class="min-h-[44px] min-w-[44px] bg-white hover:bg-blue-50 text-blue-700 rounded-lg border-2 border-blue-300 text-xl flex items-center justify-center">
+              🔊
+            </button>
+          </div>
+
+          <p class="text-lg font-black text-slate-900 leading-snug">
+            請直接點選誰「請幫我打 119！」？
+          </p>
+
+          ${hintHtml}
+
+          <div class="space-y-2.5">
+            <button type="button" onclick="triggerAction('directCall119')"
+              class="tactile-btn w-full min-h-[64px] p-3 rounded-xl font-black text-base border-2 flex items-center justify-between bg-blue-600 hover:bg-blue-500 text-white border-blue-800 text-left">
+              <span>📱 拿手機的路人</span>
+              <span>👉</span>
+            </button>
+
+            <button type="button" onclick="triggerAction('wrongPersonC')"
+              class="tactile-btn w-full min-h-[56px] p-3 rounded-xl font-black text-sm border-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 flex items-center justify-between text-left">
+              <span>🧋 拿飲料的路人</span>
+              <span>⚪</span>
+            </button>
+
+            <button type="button" onclick="triggerAction('wrongPersonD')"
+              class="tactile-btn w-full min-h-[56px] p-3 rounded-xl font-black text-sm border-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 flex items-center justify-between text-left">
+              <span>🎒 背書包學生</span>
+              <span>⚪</span>
+            </button>
+          </div>
+
+          <div id="feedback-box" class="hidden p-2.5 rounded-xl font-black text-sm text-center"></div>
+        </div>
+      `;
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第三關【叫：直接點選 AED 旁的夥伴拿取 AED】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage3() {
+      const promptText = '第三關：叫。請直接點選站在 AED 旁的夥伴，請他幫忙拿 AED！';
+      speakText(promptText);
+
+      const hintHtml = shouldShowHint() ? `
+        <div class="bg-amber-50 border-2 border-amber-400 rounded-xl p-2.5 text-amber-950 font-bold text-sm flex items-start gap-2">
+          <span class="text-lg">💡</span>
+          <span>直接點擊左側「⚡ AED 旁的夥伴」或下方按鈕！</span>
+        </div>
+      ` : '';
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center justify-between bg-amber-100 border-2 border-amber-300 px-3 py-2 rounded-xl">
+            <span class="text-base font-black text-amber-900">3.【叫：指定拿 AED】</span>
+            <button type="button" onclick="speakText('${promptText}')"
+              class="min-h-[44px] min-w-[44px] bg-white hover:bg-amber-50 text-amber-800 rounded-lg border-2 border-amber-300 text-xl flex items-center justify-center">
+              🔊
+            </button>
+          </div>
+
+          <p class="text-lg font-black text-slate-900 leading-snug">
+            請直接點選誰「請幫我拿 AED！」？
+          </p>
+
+          ${hintHtml}
+
+          <div class="space-y-2.5">
+            <button type="button" onclick="triggerAction('directFetchAed')"
+              class="tactile-btn w-full min-h-[64px] p-3 rounded-xl font-black text-base border-2 flex items-center justify-between bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-700 text-left">
+              <span>⚡ AED 旁的夥伴</span>
+              <span>👉</span>
+            </button>
+
+            <button type="button" onclick="triggerAction('wrongPersonC')"
+              class="tactile-btn w-full min-h-[56px] p-3 rounded-xl font-black text-sm border-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 flex items-center justify-between text-left">
+              <span>🧋 拿飲料的路人</span>
+              <span>⚪</span>
+            </button>
+
+            <button type="button" onclick="triggerAction('wrongPersonD')"
+              class="tactile-btn w-full min-h-[56px] p-3 rounded-xl font-black text-sm border-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 flex items-center justify-between text-left">
+              <span>🎒 背書包學生</span>
+              <span>⚪</span>
+            </button>
+          </div>
+
+          <div id="feedback-box" class="hidden p-2.5 rounded-xl font-black text-sm text-center"></div>
+        </div>
+      `;
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第四關【C：胸部按壓 CPR（鏡頭拉近 + 雙手交疊在兩乳頭連線中央）】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage4() {
+      const target = GAME_STATE.cprTarget;
+      const promptText = `第四關：C，胸部按壓。雙手交疊在兩乳頭連線中央，每分鐘 100 到 120 下，按壓 ${target} 下！`;
+      speakText(promptText);
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between bg-emerald-100 border-2 border-emerald-300 px-3 py-2 rounded-xl">
+            <span class="text-base font-black text-emerald-900">4.【C：胸部按壓】</span>
+            <button type="button" onclick="speakText('${promptText}')"
+              class="min-h-[44px] min-w-[44px] bg-white hover:bg-emerald-50 text-emerald-800 rounded-lg border-2 border-emerald-300 text-xl flex items-center justify-center">
+              🔊
+            </button>
+          </div>
+
+          <div class="bg-rose-50 border-2 border-rose-300 rounded-xl p-2 text-xs font-black text-rose-900">
+            🎯 雙手交疊在<strong>兩乳頭連線中央</strong>
+          </div>
+
+          <div class="bg-slate-900 text-white rounded-xl p-2.5 text-center">
+            <div class="text-xs font-bold text-slate-300">按壓次數進度</div>
+            <div class="text-2xl font-black text-emerald-400">
+              <span id="cpr-count-num">0</span> <span class="text-base text-white">/ ${target} 下</span>
+            </div>
+          </div>
+
+          <div id="bpm-card" class="bg-slate-100 border-2 border-slate-300 rounded-xl p-2 text-center transition-colors">
+            <div class="text-xs font-bold text-slate-600">速度 (100-120 下/分)</div>
+            <div id="bpm-value" class="text-xl font-black text-slate-800">-- 下/分</div>
+            <div id="bpm-status" class="text-xs font-black text-blue-600">跟著綠燈節拍按壓</div>
+          </div>
+
+          <div class="flex items-center gap-2.5 bg-sky-50 border-2 border-sky-200 rounded-xl p-2">
+            <div id="metronome-pulse" class="beat-ring w-10 h-10 shrink-0 rounded-full bg-emerald-500 border-2 border-white shadow flex items-center justify-center text-white font-black text-sm">
+              ${GAME_STATE.mode !== 'challenge' ? '壓！' : '💓'}
+            </div>
+            <div class="text-xs font-black text-slate-800 leading-tight">
+              ${GAME_STATE.mode !== 'challenge' ? '綠燈亮「壓！」就按一下' : '保持 100～120 下/分'}
+            </div>
+          </div>
+
+          <button id="btn-cpr-press" type="button" onpointerdown="handleCprPress(event)"
+            class="tactile-btn w-full min-h-[88px] bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white rounded-2xl border-4 border-rose-800 flex flex-col items-center justify-center gap-1 shadow-xl p-2">
+            <span class="text-xl font-black">👐 用力按壓心臟</span>
+            <span class="text-xs font-bold text-rose-100">點此鈕 / 空白鍵 / 點胸口</span>
+          </button>
+        </div>
+      `;
+
+      const pulseEl = document.getElementById('metronome-pulse');
+      soundEngine.startMetronome(110, () => {
+        if (!pulseEl) return;
+        pulseEl.style.transform = 'scale(1.26)';
+        pulseEl.style.backgroundColor = '#10b981';
+        setTimeout(() => {
+          if (pulseEl) {
+            pulseEl.style.transform = 'scale(0.95)';
+            pulseEl.style.backgroundColor = '#6ee7b7';
+          }
+        }, 160);
+      });
+    }
+
+    window.handleCprPress = (e) => {
+      if (e) e.preventDefault();
+      if (GAME_STATE.stage !== 4 || GAME_STATE.isTransitioning) return;
+
+      const now = Date.now();
+      cprAnimTimer = 1.0;
+
+      let bpm = 110;
+      let isGoodTempo = true;
+      let statusText = '👍 節奏剛剛好！';
+      let cardClass = 'bg-emerald-50 border-2 border-emerald-500 rounded-xl p-2 text-center';
+      let statusColor = 'text-emerald-700';
+
+      if (GAME_STATE.cprTimestamps.length > 0) {
+        const lastTime = GAME_STATE.cprTimestamps[GAME_STATE.cprTimestamps.length - 1];
+        const diffMs = now - lastTime;
+        if (diffMs < 200) return;
+
+        GAME_STATE.cprIntervals.push(diffMs);
+        const recent = GAME_STATE.cprIntervals.slice(-3);
+        const avgMs = recent.reduce((a, b) => a + b, 0) / recent.length;
+        bpm = Math.round(60000 / avgMs);
+
+        if (bpm < 90) {
+          isGoodTempo = false;
+          statusText = '🐢 按快一點點喔！';
+          cardClass = 'bg-sky-50 border-2 border-sky-400 rounded-xl p-2 text-center';
+          statusColor = 'text-sky-700';
+        } else if (bpm > 130) {
+          isGoodTempo = false;
+          statusText = '🐇 穩一點，跟著節拍';
+          cardClass = 'bg-amber-50 border-2 border-amber-400 rounded-xl p-2 text-center';
+          statusColor = 'text-amber-700';
+        } else {
+          GAME_STATE.cprValidCount++;
+        }
+      } else {
+        GAME_STATE.cprValidCount++;
+      }
+
+      GAME_STATE.cprTimestamps.push(now);
+      GAME_STATE.cprCount++;
+      soundEngine.playCompressSound(isGoodTempo);
+
+      const countEl = document.getElementById('cpr-count-num');
+      const bpmValEl = document.getElementById('bpm-value');
+      const bpmStatusEl = document.getElementById('bpm-status');
+      const bpmCardEl = document.getElementById('bpm-card');
+
+      if (countEl) countEl.textContent = GAME_STATE.cprCount;
+      if (bpmValEl) bpmValEl.textContent = `${bpm} 下/分`;
+      if (bpmStatusEl) {
+        bpmStatusEl.textContent = statusText;
+        bpmStatusEl.className = `text-xs font-black ${statusColor}`;
+      }
+      if (bpmCardEl) bpmCardEl.className = cardClass;
+
+      if (GAME_STATE.cprCount >= GAME_STATE.cprTarget) {
+        GAME_STATE.isTransitioning = true;
+        soundEngine.stopMetronome();
+        soundEngine.playSuccess();
+        speakText('太棒了！完成胸部按壓！現在鏡頭拉近 AED，請操作開、貼、插、電！', () => {
+          goToStage(5);
+        });
+      }
+    };
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第五關【D：使用 AED（開 → 貼：學生親自點擊胸口兩處練習貼片 → 插 → 電）】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage5() {
+      const stepPrompts = [
+        '第五關：D，使用 AED。第一步【開】：請按綠色電源鍵，打開電源！',
+        '第二步【貼】：請親自點擊患者胸口兩個位置貼上貼片！一片在右側鎖骨下方，一片在左側乳頭下方偏外側！',
+        '第三步【插】：請將藍色電擊插頭，插進 AED 左上角的白色插孔！',
+        '第四步【電】：不要碰觸病人！請直接點選左側 AED 機器最下方閃爍的橘色電擊鍵！'
+      ];
+      const currentPrompt = stepPrompts[GAME_STATE.subStep];
+      speakText(currentPrompt);
+
+      panelContentEl.innerHTML = `
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between bg-amber-100 border-2 border-amber-400 px-3 py-2 rounded-xl">
+            <span class="text-base font-black text-amber-950">5.【D：開→貼→插→電】</span>
+            <button type="button" onclick="speakText('${currentPrompt}')"
+              class="min-h-[44px] min-w-[44px] bg-white hover:bg-amber-50 text-amber-900 rounded-lg border-2 border-amber-400 text-xl flex items-center justify-center">
+              🔊
+            </button>
+          </div>
+
+          <!-- 四步驟進度條 -->
+          <div class="grid grid-cols-4 gap-1 bg-slate-900 text-white p-1.5 rounded-xl text-center font-black text-xs">
+            <div class="py-1 rounded-lg ${GAME_STATE.subStep === 0 ? 'bg-green-600 ring-2 ring-white' : (GAME_STATE.subStep > 0 ? 'bg-emerald-800 text-emerald-200' : 'bg-slate-800 text-slate-400')}">①開</div>
+            <div class="py-1 rounded-lg ${GAME_STATE.subStep === 1 ? 'bg-blue-600 ring-2 ring-white' : (GAME_STATE.subStep > 1 ? 'bg-emerald-800 text-emerald-200' : 'bg-slate-800 text-slate-400')}">②貼</div>
+            <div class="py-1 rounded-lg ${GAME_STATE.subStep === 2 ? 'bg-indigo-600 ring-2 ring-white' : (GAME_STATE.subStep > 2 ? 'bg-emerald-800 text-emerald-200' : 'bg-slate-800 text-slate-400')}">③插</div>
+            <div class="py-1 rounded-lg ${GAME_STATE.subStep === 3 ? 'bg-orange-600 ring-2 ring-white' : 'bg-slate-800 text-slate-400'}">④電</div>
+          </div>
+
+          <!-- 1. 開電源 -->
+          <button type="button" onclick="triggerAction('aedPower')"
+            ${GAME_STATE.subStep !== 0 ? 'disabled' : ''}
+            class="tactile-btn w-full min-h-[56px] px-3 py-2 rounded-xl font-black text-sm flex items-center justify-between text-left ${GAME_STATE.subStep > 0 ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-400' : (GAME_STATE.subStep === 0 ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-slate-200 text-slate-500')}">
+            <span>1.【開】🟢 按綠色電源鍵</span>
+            <span>${GAME_STATE.subStep > 0 ? '✅' : (GAME_STATE.subStep === 0 ? '👉' : '🔒')}</span>
+          </button>
+
+          <!-- 2. 貼貼片（學生親自點擊左側患者胸口兩個位置練習） -->
+          <div class="rounded-xl p-2.5 border-2 transition-all ${GAME_STATE.subStep === 1 ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200' : (GAME_STATE.subStep > 1 ? 'bg-emerald-50 border-emerald-400' : 'bg-slate-100 border-slate-200 opacity-50')}">
+            <div class="font-black text-sm text-slate-900 mb-1.5 flex items-center justify-between">
+              <span>2.【貼】🩹 親自點擊胸口貼兩片</span>
+              <span>${GAME_STATE.subStep > 1 ? '✅' : ''}</span>
+            </div>
+            <div class="space-y-1.5">
+              <button type="button" onclick="triggerAction('placePad1')"
+                ${GAME_STATE.subStep !== 1 || GAME_STATE.pad1Placed ? 'disabled' : ''}
+                class="w-full min-h-[48px] px-2.5 py-1.5 rounded-lg font-black text-xs flex items-center justify-between text-left border ${GAME_STATE.pad1Placed ? 'bg-emerald-200 text-emerald-950 border-emerald-500' : (GAME_STATE.subStep === 1 ? 'bg-red-600 hover:bg-red-500 text-white border-red-800' : 'bg-white text-slate-500')}">
+                <span>① 右側鎖骨下方（左下）</span>
+                <span>${GAME_STATE.pad1Placed ? '✅ 已貼' : '👆 點胸口'}</span>
+              </button>
+              <button type="button" onclick="triggerAction('placePad2')"
+                ${GAME_STATE.subStep !== 1 || GAME_STATE.pad2Placed ? 'disabled' : ''}
+                class="w-full min-h-[48px] px-2.5 py-1.5 rounded-lg font-black text-xs flex items-center justify-between text-left border ${GAME_STATE.pad2Placed ? 'bg-emerald-200 text-emerald-950 border-emerald-500' : (GAME_STATE.subStep === 1 ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-800' : 'bg-white text-slate-500')}">
+                <span>② 左側乳頭下方偏外側（右上）</span>
+                <span>${GAME_STATE.pad2Placed ? '✅ 已貼' : '👆 點胸口'}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. 插插頭 -->
+          <button type="button" onclick="triggerAction('aedPlug')"
+            ${GAME_STATE.subStep !== 2 ? 'disabled' : ''}
+            class="tactile-btn w-full min-h-[56px] px-3 py-2 rounded-xl font-black text-sm flex items-center justify-between text-left ${GAME_STATE.subStep > 2 ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-400' : (GAME_STATE.subStep === 2 ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-200 text-slate-500')}">
+            <span>3.【插】🔌 插上藍色電擊插頭</span>
+            <span>${GAME_STATE.subStep > 2 ? '✅' : (GAME_STATE.subStep === 2 ? '👉' : '🔒')}</span>
+          </button>
+
+          <!-- 4. 按電擊鍵（引導直接點選左側 3D AED 機器下方的橘色電擊鍵） -->
+          <div class="rounded-xl p-2.5 border-2 transition-all ${GAME_STATE.subStep === 3 ? 'bg-orange-50 border-orange-500 ring-2 ring-orange-300' : 'bg-slate-100 border-slate-200 opacity-50'}">
+            <div class="font-black text-sm text-orange-950 mb-1">
+              4.【電】✋ 不要碰觸病人！
+            </div>
+            <p class="text-xs font-bold text-orange-900 mb-2">
+              請直接點擊<strong>左側 AED 機器最下方的「橘色閃電電擊鍵」</strong>！
+            </p>
+            <button type="button" onclick="triggerAction('aedShock')"
+              ${GAME_STATE.subStep !== 3 ? 'disabled' : ''}
+              class="tactile-btn w-full min-h-[56px] px-3 py-1.5 rounded-xl font-black text-sm flex items-center justify-center gap-1.5 ${GAME_STATE.subStep === 3 ? 'bg-orange-500 hover:bg-orange-400 text-white border-2 border-orange-700 shock-btn-active' : 'bg-slate-300 text-slate-500'}">
+              <span>⚡ 按下橘色電擊鍵</span>
+            </button>
+          </div>
+
+          <div id="feedback-box" class="hidden p-2 rounded-xl font-black text-xs text-center"></div>
+        </div>
+      `;
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * 第六關【救護車送醫與救援成功獎勵】
+     * -------------------------------------------------------------------------
+     */
+    function renderStage6() {
+      GAME_STATE.endTime = Date.now();
+      const totalSec = Math.max(1, Math.round((GAME_STATE.endTime - GAME_STATE.startTime) / 1000));
+
+      let avgBpm = 110;
+      if (GAME_STATE.cprIntervals.length > 0) {
+        const avgMs = GAME_STATE.cprIntervals.reduce((a, b) => a + b, 0) / GAME_STATE.cprIntervals.length;
+        avgBpm = Math.round(60000 / avgMs);
+      }
+
+      GAME_STATE.ambulanceState = 'arriving';
+      soundEngine.playAmbulanceSiren();
+      setTimeout(() => {
+        soundEngine.playCheeringFanfare();
+        speakText('救援成功！救護車已經趕到現場，把病人安全送往醫院了！你是最棒的急救小英雄！');
+      }, 950);
+
+      panelContentEl.innerHTML = `
+        <div class="text-center space-y-3">
+          <div class="bg-gradient-to-b from-amber-100 to-yellow-50 border-4 border-amber-400 rounded-2xl p-4 shadow-lg">
+            <div class="text-4xl mb-1">⭐⭐⭐</div>
+            <div class="inline-block bg-rose-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full mb-1">
+              急救小英雄獎狀
+            </div>
+            <h2 class="text-xl font-black text-amber-900 mb-1">
+              救援成功！救護車已送醫！
+            </h2>
+            <p class="text-xs font-bold text-slate-700">
+              你的冷靜判斷與正確急救，成功守護了寶貴的生命！
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-left">
+            <div class="bg-sky-50 border-2 border-sky-300 rounded-xl p-2.5">
+              <div class="text-xs font-bold text-sky-700">⏱️ 救援時間</div>
+              <div class="text-xl font-black text-slate-900">${totalSec} 秒</div>
+            </div>
+            <div class="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-2.5">
+              <div class="text-xs font-bold text-emerald-700">💓 平均節拍</div>
+              <div class="text-xl font-black text-slate-900">${avgBpm} 下/分</div>
+            </div>
+          </div>
+
+          <div class="bg-slate-100 rounded-xl p-2.5 text-xs font-bold text-slate-700 leading-relaxed">
+            口訣：<strong>叫</strong>（拍肩）→ <strong>叫</strong>（119與AED）→ <strong>C</strong>（壓胸）→ <strong>D</strong>（開・貼・插・電）
+          </div>
+
+          <button type="button" onclick="goToStage(0)"
+            class="tactile-btn w-full min-h-[60px] bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-800 flex items-center justify-center gap-2">
+            <span>🔄</span>
+            <span>再玩一次</span>
+          </button>
+        </div>
+      `;
+    }
+
+    /**
+     * =========================================================================
+     * 12. 統一動作派發器 (含 350ms 防連點、完整語音等待與零挫折正向回饋)
+     * =========================================================================
+     */
+    function showFeedback(message, isPositive = true) {
+      const box = document.getElementById('feedback-box');
+      if (!box) return;
+      box.classList.remove('hidden', 'gentle-shake');
+      box.className = `p-2.5 rounded-xl font-black text-xs text-center ${
+        isPositive
+          ? 'bg-emerald-100 text-emerald-900 border-2 border-emerald-400'
+          : 'bg-amber-100 text-amber-950 border-2 border-amber-400 gentle-shake'
+      }`;
+      box.textContent = message;
+    }
+
+    function checkBothPadsPlaced() {
+      if (GAME_STATE.pad1Placed && GAME_STATE.pad2Placed) {
+        GAME_STATE.isTransitioning = true;
+        updateAedLcdScreen('plug');
+        showFeedback('🩹 太棒了！兩片電擊貼片都貼在正確位置了！接著請插上藍色插頭！', true);
+        speakText('兩片貼片都貼對位置了！第三步，請插上藍色電擊插頭！', () => {
+          GAME_STATE.isTransitioning = false;
+          GAME_STATE.subStep = 2;
+          setCameraPreset('aedZoom');
+          renderStage5();
+        });
+      } else {
+        renderStage5();
+      }
+    }
+
+    window.triggerAction = (action) => {
+      if (GAME_STATE.isLocked || GAME_STATE.isTransitioning) return;
+      lockInput(350);
+
+      switch (action) {
+        // 第 1 關：拍拍肩膀後直接連續詢問「先生、小姐，你還好嗎？你怎麼了？」，並等語音完整念完才進第 2 關
+        case 'tapAndAsk':
+          GAME_STATE.isTransitioning = true;
+          soundEngine.playSuccess();
+          tapAnimTimer = 1.4;
+          const btn1 = document.getElementById('btn-stage1-action');
+          if (btn1) btn1.disabled = true;
+
+          document.getElementById('bubble-patient').classList.remove('hidden');
+          showFeedback('🗣️ 正在呼喚：「先生、小姐，你還好嗎？你怎麼了？」⋯', true);
+
+          speakText('先生、小姐，你還好嗎？你怎麼了？', () => {
+            showFeedback('患者沒有任何反應！準備進入第二關求救！', true);
+            setTimeout(() => goToStage(2), 550);
+          });
+          break;
+
+        // 第 2 關：直接點選拿手機的路人即執行撥打 119
+        case 'directCall119':
+          GAME_STATE.isTransitioning = true;
+          soundEngine.playSuccess();
+          GAME_STATE.personAState = 'calling';
+          document.getElementById('bubble-personA').classList.remove('hidden');
+          showFeedback('📱 找對人了！「請幫我打 119！」路人正在撥打急救電話⋯', true);
+
+          speakText('請幫我打 119！', () => {
+            setTimeout(() => goToStage(3), 500);
+          });
+          break;
+
+        case 'wrongPersonC':
+          soundEngine.playGentleHint();
+          GAME_STATE.showHintAfterError = true;
+          const bubbleC = document.getElementById('bubble-personC');
+          if (bubbleC) bubbleC.classList.remove('hidden');
+          speakText('他手上拿的是飲料喔，我們再找找看拿手機或 AED 旁的夥伴！');
+          if (GAME_STATE.stage === 2) renderStage2();
+          if (GAME_STATE.stage === 3) renderStage3();
+          showFeedback('💡 他拿的是飲料喔！請點選拿手機或 AED 旁的夥伴。', false);
+          break;
+
+        case 'wrongPersonD':
+          soundEngine.playGentleHint();
+          GAME_STATE.showHintAfterError = true;
+          const bubbleD = document.getElementById('bubble-personD');
+          if (bubbleD) bubbleD.classList.remove('hidden');
+          speakText('他是背書包的學生喔，我們請拿手機或 AED 旁的夥伴幫忙！');
+          if (GAME_STATE.stage === 2) renderStage2();
+          if (GAME_STATE.stage === 3) renderStage3();
+          showFeedback('💡 他是背書包的學生喔！請點選拿手機或 AED 旁的夥伴。', false);
+          break;
+
+        // 第 3 關：直接點選 AED 旁的夥伴即跑去拿取 AED
+        case 'directFetchAed':
+          GAME_STATE.isTransitioning = true;
+          soundEngine.playSuccess();
+          GAME_STATE.personBState = 'fetching';
+          document.getElementById('bubble-personB').classList.remove('hidden');
+          showFeedback('⚡ 找對夥伴了！「請幫我拿 AED！」夥伴正把 AED 送過來⋯', true);
+
+          speakText('請幫我拿 AED！', () => {
+            setTimeout(() => goToStage(4), 650);
+          });
+          break;
+
+        case 'cprCompress':
+          handleCprPress();
+          break;
+
+        // 第 5 關 AED 四步驟：開 → 貼（學生親自點兩處）→ 插 → 電
+        case 'aedPower':
+          soundEngine.playSuccess();
+          updateAedLcdScreen('pads');
+          GAME_STATE.subStep = 1;
+          setCameraPreset('aedPads');
+          renderStage5();
+          showFeedback('🟢 電源已開啟！請點擊患者胸口兩個發光處貼上電擊貼片！', true);
+          break;
+
+        case 'placePad1':
+          if (GAME_STATE.pad1Placed) return;
+          soundEngine.playSuccess();
+          GAME_STATE.pad1Placed = true;
+          pad1Group.visible = true;
+          wire1Mesh.visible = true;
+          showFeedback('🩹 已貼在「患者右側鎖骨下方」！', true);
+          if (!GAME_STATE.pad2Placed) {
+            speakText('很好！第一片貼在右側鎖骨下方了，請再貼第二片在左側乳頭下方偏外側！');
+          }
+          checkBothPadsPlaced();
+          break;
+
+        case 'placePad2':
+          if (GAME_STATE.pad2Placed) return;
+          soundEngine.playSuccess();
+          GAME_STATE.pad2Placed = true;
+          pad2Group.visible = true;
+          wire2Mesh.visible = true;
+          showFeedback('🩹 已貼在「患者左側乳頭下方偏外側」！', true);
+          if (!GAME_STATE.pad1Placed) {
+            speakText('很好！這片貼在左側乳頭下方偏外側了，請再貼另一片在右側鎖骨下方！');
+          }
+          checkBothPadsPlaced();
+          break;
+
+        case 'aedPlug':
+          soundEngine.playSuccess();
+          bluePlug.position.set(-0.15, 0.155, -0.21);
+          GAME_STATE.crowdCleared = true;
+          updateAedLcdScreen('shock');
+          GAME_STATE.subStep = 3;
+          setCameraPreset('aedZoom');
+          renderStage5();
+          showFeedback('🔌 藍色插頭已插入！請直接點選左側 AED 機器下方的「橘色電擊鍵」！', true);
+          break;
+
+        case 'aedShock':
+          GAME_STATE.isTransitioning = true;
+          soundEngine.playShockSound();
+          const flashOverlay = document.createElement('div');
+          flashOverlay.className = 'fixed inset-0 bg-white z-50 pointer-events-none transition-opacity duration-500';
+          document.body.appendChild(flashOverlay);
+          setTimeout(() => { flashOverlay.style.opacity = '0'; }, 60);
+          setTimeout(() => { flashOverlay.remove(); }, 600);
+
+          showFeedback('⚡ 已按下橘色電擊鍵完成電擊！救護車鳴笛趕到現場了！', true);
+          setTimeout(() => goToStage(6), 1100);
+          break;
+      }
+    };
+
+    /**
+     * =========================================================================
+     * 13. 頂部懸浮功能鍵事件綁定（步驟卡、靜音、回首頁）
+     * =========================================================================
+     */
+    const modalGuide = document.getElementById('modal-guide');
+    const modalHome = document.getElementById('modal-home');
+
+    document.getElementById('btn-guide-modal').addEventListener('click', () => {
+      soundEngine.playSuccess();
+      modalGuide.classList.remove('hidden');
+    });
+    document.getElementById('close-guide-modal').addEventListener('click', () => {
+      modalGuide.classList.add('hidden');
+    });
+    document.getElementById('btn-guide-ok').addEventListener('click', () => {
+      modalGuide.classList.add('hidden');
+    });
+
+    document.getElementById('btn-mute-toggle').addEventListener('click', () => {
+      GAME_STATE.isMuted = !GAME_STATE.isMuted;
+      const icon = document.getElementById('mute-icon');
+      const text = document.getElementById('mute-text');
+      if (GAME_STATE.isMuted) {
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        icon.textContent = '🔇';
+        text.textContent = '已靜音';
+      } else {
+        icon.textContent = '🔊';
+        text.textContent = '語音開';
+        soundEngine.playSuccess();
+      }
+    });
+
+    document.getElementById('btn-home-confirm').addEventListener('click', () => {
+      if (GAME_STATE.stage === 0) {
+        speakText('你已經在首頁囉！請按開始急救任務！');
+        return;
+      }
+      modalHome.classList.remove('hidden');
+    });
+    document.getElementById('cancel-home-btn').addEventListener('click', () => {
+      modalHome.classList.add('hidden');
+    });
+    document.getElementById('confirm-home-btn').addEventListener('click', () => {
+      modalHome.classList.add('hidden');
+      goToStage(0);
+    });
+
+    // 啟動遊戲主程式
+    window.onload = () => {
+      goToStage(0);
+      animate(0);
+    };
+  </script>
+</body>
+</html>
